@@ -2,3 +2,5 @@
 env
 *~
 *.pyc
+UNKNOWN.egg-info
+

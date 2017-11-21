@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import numpy as np
 
 
@@ -13,6 +10,8 @@ def load_obj(filename, normalization=True):
     # load vertices
     vertices = []
     for line in open(filename).readlines():
+        if len(line.split()) == 0:
+            continue
         if line.split()[0] == 'v':
             vertices.append([float(v) for v in line.split()[1:4]])
     vertices = np.vstack(vertices).astype('float32')
@@ -20,6 +19,8 @@ def load_obj(filename, normalization=True):
     # load faces
     faces = []
     for line in open(filename).readlines():
+        if len(line.split()) == 0:
+            continue
         if line.split()[0] == 'f':
             vs = line.split()[1:]
             nv = len(vs)
