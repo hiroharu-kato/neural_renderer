@@ -15,7 +15,7 @@ class TestPerspective(unittest.TestCase):
         vertices = np.array(v_in, 'float32')
         vertices = vertices[None, None, :]
         transformed = neural_renderer.perspective(vertices)
-        chainer.testing.assert_allclose(transformed.data.flatten(), np.array(v_out))
+        chainer.testing.assert_allclose(transformed.data.flatten(), np.array(v_out, 'float32'))
 
 
 if __name__ == '__main__':
