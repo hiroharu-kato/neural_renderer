@@ -1,6 +1,8 @@
 import chainer
 import chainer.functions as cf
+
 import neural_renderer
+
 
 def look_at(vertices, eye, at=None, up=None):
     """
@@ -37,6 +39,3 @@ def look_at(vertices, eye, at=None, up=None):
     vertices = cf.batch_matmul(vertices, r, transb=True)
 
     return vertices
-
-
-
