@@ -1,11 +1,12 @@
+import chainer
 import chainer.functions as cf
-import numpy as np
 
 
 def perspective(vertices, angle=None):
     assert (vertices.ndim == 3)
     if angle is None:
-        angle = np.array([np.pi / 3.] * vertices.shape[0], 'float32')
+        xp = chainer.cuda.get_array_module(vertices)
+        angle = xp.array([xp.radians(60)] * vertices.shape[0], 'float32')
 
     width = cf.tan(angle / 2)
     z = vertices[:, :, 2]
