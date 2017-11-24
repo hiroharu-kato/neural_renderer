@@ -35,6 +35,7 @@ def load_obj(filename, normalization=True):
     if normalization:
         vertices -= vertices.min(0)[None, :]
         vertices /= np.abs(vertices).max()
-        vertices -= 0.5
+        vertices *= 2
+        vertices -= vertices.max(0)[None, :] / 2
 
     return vertices, faces

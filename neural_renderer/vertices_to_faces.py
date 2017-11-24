@@ -1,5 +1,6 @@
 import chainer
 
+
 def vertices_to_faces(vertices, faces):
     """
     :param vertices: [batch size, number of vertices, 3]

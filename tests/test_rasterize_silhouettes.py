@@ -4,22 +4,28 @@ import chainer
 import chainer.gradient_check
 import chainer.testing
 import numpy as np
+import scipy.misc
 
 import neural_renderer
 
 
 class TestRasterizeSilhouette(unittest.TestCase):
     def test_case1(self):
-
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
         faces = faces[None, :, :]
+        vertices = chainer.cuda.to_gpu(vertices)
+        faces = chainer.cuda.to_gpu(faces)
 
-        vertices = neural_renderer.look_at(vertices, np.array([0, 0, -2.732], 'float32'))
+        eye = chainer.cuda.to_gpu(np.array([0, 0, -2.732], 'float32'))
+
+        vertices = neural_renderer.look_at(vertices, eye)
         vertices = neural_renderer.perspective(vertices)
+        faces = neural_renderer.vertices_to_faces(vertices, faces)
+        images = neural_renderer.rasterize_silhouettes(faces)
+        images = images.data.get()
 
-        vertices = neural_renderer.vertices_to_faces(vertices, faces)
-        print vertices.shape
+        scipy.misc.imsave('./tests/data/test_rasterize_silhouetts_1.png', images[0])
 
 
 if __name__ == '__main__':
