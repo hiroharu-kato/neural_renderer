@@ -34,7 +34,7 @@ class RasterizeSilhouette(chainer.Function):
         self.face_index_map = xp.ascontiguousarray(-1 * xp.ones((bs, is_, is_), dtype='int32'))
         self.images = xp.ascontiguousarray(xp.zeros((bs, is_, is_), dtype='float32'))
 
-        # vertices -> face_index_map, weight_map, z_map
+        # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
         chainer.cuda.elementwise(
             'raw float32 faces, int32 num_faces, int32 image_size, float32 near, float32 far',

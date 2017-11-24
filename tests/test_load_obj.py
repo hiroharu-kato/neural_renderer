@@ -1,6 +1,5 @@
-import unittest
-
 import numpy as np
+import unittest
 
 import neural_renderer
 
@@ -26,7 +25,7 @@ class TestCore(unittest.TestCase):
         assert (np.allclose(vertices_ref, vertices))
         assert (np.allclose(faces_ref, faces))
         vertices, faces = neural_renderer.load_obj('./tests/data/tetrahedron.obj', True)
-        assert (np.allclose(vertices_ref - 0.5, vertices))
+        assert (np.allclose(vertices_ref * 2 - 1.0, vertices))
         assert (np.allclose(faces_ref, faces))
 
     def test_teapot(self):
