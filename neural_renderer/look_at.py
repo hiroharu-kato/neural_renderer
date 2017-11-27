@@ -16,6 +16,8 @@ def look_at(vertices, eye, at=None, up=None):
     if up is None:
         up = xp.array([0, 1, 0], 'float32')
 
+    if isinstance(eye, list) or isinstance(eye, tuple):
+        eye = xp.array(eye, 'float32')
     if eye.ndim == 1:
         eye = eye[None, :]
     if at.ndim == 1:

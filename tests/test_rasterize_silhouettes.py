@@ -19,15 +19,12 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         vertices = chainer.cuda.to_gpu(vertices)
         faces = chainer.cuda.to_gpu(faces)
 
-        eye = chainer.cuda.to_gpu(np.array([0, 0, -2.732], 'float32'))
+        # create renderer
+        renderer = neural_renderer.Renderer()
+        renderer.image_size = 256
+        renderer.anti_aliasing = False
 
-        # transform
-        vertices = neural_renderer.look_at(vertices, eye)
-        vertices = neural_renderer.perspective(vertices)
-        faces = neural_renderer.vertices_to_faces(vertices, faces)
-
-        # rasterize
-        images = neural_renderer.rasterize_silhouettes(faces, anti_aliasing=False)
+        images = renderer.render_silhouettes(vertices, faces)
         images = images.data.get()
         image = images[0]
 
@@ -39,26 +36,31 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case1(self):
-        faces = [
+        vertices = [
             [0.8, 0.8, 1.],
             [0.0, -0.5, 1.],
             [0.2, -0.4, 1.]]
+        faces = [[0, 1, 2]]
         pxi = 35
         pyi = 25
-        options = {'image_size': 64, 'anti_aliasing': False}
 
-        faces = cp.array(faces, 'float32')
-        faces = chainer.Variable(faces)
-        images = neural_renderer.rasterize_silhouettes(faces[None, None, :, :], **options)
+        renderer = neural_renderer.Renderer()
+        renderer.image_size = 64
+        renderer.anti_aliasing = False
+        renderer.perspective = False
+
+        vertices = chainer.Variable(cp.array(vertices, 'float32'))
+        faces = cp.array(faces, 'int32')
+        images = renderer.render_silhouettes(vertices[None, :, :], faces[None, :, :])
         loss = cf.sum(cf.absolute(images[:, pyi, pxi] - 1))
         loss.backward()
 
         for i in range(3):
             for j in range(2):
                 axis = 'x' if j == 0 else 'y'
-                faces2 = cp.copy(faces.data)
-                faces2[i, j] -= 1. / faces.grad[i, j]
-                images = neural_renderer.rasterize_silhouettes(faces2[None, None, :, :], **options)
+                vertices2 = cp.copy(vertices.data)
+                vertices2[i, j] -= 1. / vertices.grad[i, j]
+                images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
                 image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
                 image[pyi, pxi] = [1, 0, 0]
                 ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case1_v%d_%s.png' % (i, axis))
@@ -66,26 +68,31 @@ class TestRasterizeSilhouettes(unittest.TestCase):
                 chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case2(self):
-        faces = [
+        vertices = [
             [0.8, 0.8, 1.],
             [-0.5, -0.8, 1.],
             [0.8, -0.8, 1.]]
+        faces = [[0, 1, 2]]
         pyi = 40
         pxi = 50
-        options = {'image_size': 64, 'anti_aliasing': False}
 
-        faces = cp.array(faces, 'float32')
-        faces = chainer.Variable(faces)
-        images = neural_renderer.rasterize_silhouettes(faces[None, None, :, :], **options)
+        renderer = neural_renderer.Renderer()
+        renderer.image_size = 64
+        renderer.anti_aliasing = False
+        renderer.perspective = False
+
+        vertices = chainer.Variable(cp.array(vertices, 'float32'))
+        faces = cp.array(faces, 'int32')
+        images = renderer.render_silhouettes(vertices[None, :, :], faces[None, :, :])
         loss = cf.sum(cf.absolute(images[:, pyi, pxi]))
         loss.backward()
 
         for i in range(3):
             for j in range(2):
                 axis = 'x' if j == 0 else 'y'
-                faces2 = cp.copy(faces.data)
-                faces2[i, j] -= 1. / faces.grad[i, j]
-                images = neural_renderer.rasterize_silhouettes(faces2[None, None, :, :], **options)
+                vertices2 = cp.copy(vertices.data)
+                vertices2[i, j] -= 1. / vertices.grad[i, j]
+                images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
                 image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
                 image[pyi, pxi] = [1, 0, 0]
                 ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case2_v%d_%s.png' % (i, axis))

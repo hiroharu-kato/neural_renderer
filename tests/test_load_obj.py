@@ -5,7 +5,7 @@ import neural_renderer
 
 
 class TestCore(unittest.TestCase):
-    def test_tetrahedrom(self):
+    def test_tetrahedron(self):
         vertices_ref = np.array(
             [
                 [1., 0., 0.],

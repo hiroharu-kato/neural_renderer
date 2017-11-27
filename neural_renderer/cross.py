@@ -1,6 +1,7 @@
+import numpy as np
+
 import chainer
 import cupy as cp
-import numpy as np
 
 
 class Cross(chainer.Function):
