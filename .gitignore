@@ -1,6 +1,6 @@
 .idea
-env
 *~
 *.pyc
 UNKNOWN.egg-info
+.DS_Store
 
