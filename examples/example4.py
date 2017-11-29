@@ -1,5 +1,5 @@
 """
-Example 2. Optimizing vertices.
+Example 4. Finding camera parameters.
 """
 import argparse
 import glob

@@ -1,5 +1,5 @@
 """
-Example 2. Optimizing vertices.
+Example 3. Optimizing textures.
 """
 import argparse
 import glob
