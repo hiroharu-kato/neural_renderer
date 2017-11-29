@@ -24,3 +24,15 @@ Under construction.
 
 Under construction.
 
+
+
+## Citation
+
+```
+@article{kato2017renderer,
+  title={Neural 3D Mesh Renderer},
+  author={Kato, Hiroharu and Ushiku, Yoshitaka and Harada, Tatsuya},
+  journal={arXiv:1711.07566},
+  year={2017}
+}
+```
