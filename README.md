@@ -2,7 +2,7 @@
 
 This is the code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
 
-This repository only contains the core component and simple examples.
+This repository only contains the core component and simple examples. Other examples are on the [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
 
 ## Example 1: Drawing an object from multiple viewpoints
 
