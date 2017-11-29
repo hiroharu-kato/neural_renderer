@@ -3,12 +3,13 @@ import chainer.functions as cf
 
 
 class Rasterize(chainer.Function):
-    def __init__(self, image_size, near, far, eps):
+    def __init__(self, image_size, near, far, eps, background_color):
         super(Rasterize, self).__init__()
         self.image_size = image_size
         self.near = near
         self.far = far
         self.eps = eps
+        self.background_color = background_color
 
         self.face_index_map = None
         self.weight_map = None
@@ -152,7 +153,7 @@ class Rasterize(chainer.Function):
         )
 
         # texture sampling
-        background_colors = xp.ones(3, 'float32') * self.background_colors
+        background_colors = xp.array(self.background_color, 'float32')
         chainer.cuda.elementwise(
             'int32 pi, raw float32 textures, raw float32 face_map, int32 face_index, raw float32 weight_map, ' +
             'float32 z, int32 image_size, int32 num_faces, int32 texture_size, raw float32 background_color, ' +
@@ -197,7 +198,7 @@ class Rasterize(chainer.Function):
                     }
                     memcpy(pixel, new_pixel, 3 * sizeof(float));
                 } else {
-                    memcpy(pixel, background_color, 3 * sizeof(float));
+                    for (int k = 0; k < 3; k++) pixel[k] = background_color[k];
                 }
             ''',
             'function',
@@ -358,11 +359,13 @@ class Rasterize(chainer.Function):
         raise NotImplementedError
 
 
-def rasterize(faces, textures, image_size=256, anti_aliasing=True, near=0.1, far=100, eps=1e-3):
+def rasterize(faces, textures, image_size=256, anti_aliasing=True, near=0.1, far=100, eps=1e-3, background_color=(0, 0, 0)):
     if anti_aliasing:
-        images = Rasterize(image_size * 2, near, far, eps)(faces, textures)
-        images = cf.average_pooling_2d(images[:, None, :, :], 2, 2)[:, 0]
+        images = Rasterize(image_size * 2, near, far, eps, background_color)(faces, textures)
+        images = images.transpose((0, 3, 1, 2))
+        images = cf.average_pooling_2d(images, 2, 2)
     else:
-        images = Rasterize(image_size, near, far, eps)(faces, textures)
-    images = images[:, ::-1, :]
+        images = Rasterize(image_size, near, far, eps, background_color)(faces, textures)
+        images = images.transpose((0, 3, 1, 2))
+    images = images[:, :, ::-1, :]
     return images

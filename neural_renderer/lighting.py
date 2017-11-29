@@ -30,7 +30,7 @@ def lighting(
 
     # ambient light
     if intensity_ambient != 0:
-        light += intensity_ambient * cf.broadcast_to(color_ambient[:, None, :], light.shape)
+        light = light + intensity_ambient * cf.broadcast_to(color_ambient[:, None, :], light.shape)
 
     # directional light
     if intensity_directional != 0:
@@ -42,10 +42,11 @@ def lighting(
 
         if direction.ndim == 2:
             direction = cf.broadcast_to(direction[:, None, :], normals.shape)
-        cos = cf.relu(-cf.sum(normals * direction, axis=2))
-        light += intensity_directional * cfmath.mul(*cf.broadcast(color_directional[:, None, :], cos[:, :, None]))
+        cos = cf.relu(cf.sum(normals * direction, axis=2))
+        light = (
+            light + intensity_directional * cfmath.mul(*cf.broadcast(color_directional[:, None, :], cos[:, :, None])))
 
     # apply
     light = cf.broadcast_to(light[:, :, None, None, None, :], textures.shape)
-    textures *= light
+    textures = textures * light
     return textures
