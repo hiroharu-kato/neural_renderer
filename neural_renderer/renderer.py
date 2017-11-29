@@ -15,12 +15,20 @@ class Renderer(object):
         self.rasterizer_eps = 1e-3
         self.fill_back = True
 
+        # camera
+        self.camera_mode = 'look_at'
+        self.camera_direction = [0, 0, 1]
+
         # light
         self.light_intensity_ambient = 0.5
         self.light_intensity_directional = 0.5
 
     def render_silhouettes(self, vertices, faces):
-        vertices = neural_renderer.look_at(vertices, self.eye)
+        if self.camera_mode == 'look_at':
+            vertices = neural_renderer.look_at(vertices, self.eye)
+        elif self.camera_mode == 'look':
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
+
         if self.perspective:
             vertices = neural_renderer.perspective(vertices)
         faces = neural_renderer.vertices_to_faces(vertices, faces)
@@ -30,7 +38,11 @@ class Renderer(object):
         return images
 
     def render(self, vertices, faces, textures):
-        vertices = neural_renderer.look_at(vertices, self.eye)
+        if self.camera_mode == 'look_at':
+            vertices = neural_renderer.look_at(vertices, self.eye)
+        elif self.camera_mode == 'look':
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
+
         if self.perspective:
             vertices = neural_renderer.perspective(vertices)
         faces = neural_renderer.vertices_to_faces(vertices, faces)

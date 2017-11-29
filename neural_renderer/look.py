@@ -4,15 +4,15 @@ import chainer.functions as cf
 import neural_renderer
 
 
-def look_at(vertices, eye, at=None, up=None):
+def look(vertices, eye, direction=None, up=None):
     """
     "Look at" transformation of vertices.
     """
     assert (vertices.ndim == 3)
 
     xp = chainer.cuda.get_array_module(vertices)
-    if at is None:
-        at = xp.array([0, 0, 0], 'float32')
+    if direction is None:
+        direction = xp.array([0, 0, 1], 'float32')
     if up is None:
         up = xp.array([0, 1, 0], 'float32')
 
@@ -20,13 +20,13 @@ def look_at(vertices, eye, at=None, up=None):
         eye = xp.array(eye, 'float32')
     if eye.ndim == 1:
         eye = eye[None, :]
-    if at.ndim == 1:
-        at = at[None, :]
+    if direction.ndim == 1:
+        direction = direction[None, :]
     if up.ndim == 1:
         up = up[None, :]
 
     # create new axes
-    z_axis = cf.normalize(at - eye)
+    z_axis = cf.normalize(direction)
     x_axis = cf.normalize(neural_renderer.cross(up, z_axis))
     y_axis = cf.normalize(neural_renderer.cross(z_axis, x_axis))
 

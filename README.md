@@ -26,7 +26,12 @@ Reference image, result.
 
 ## Example 4: Finding camera parameters
 
-Under construction.
+The derivative of images with respect to camera pose can be computed through this renderer. In this example the position of the camera is optimized by gradient descent.
+
+From left to right: reference image, initial state, and optimization process.
+
+![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_init.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_result.gif)
+
 
 
 
