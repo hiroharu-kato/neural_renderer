@@ -18,7 +18,11 @@ Reference image, optimization, and the result.
 
 ## Example 3: Optimizing textures
 
-Under construction.
+Matching the color of a teapot with a reference image.
+
+Reference image, result.
+
+![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_result.gif) 
 
 ## Example 4: Finding camera parameters
 

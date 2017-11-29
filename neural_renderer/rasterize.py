@@ -212,25 +212,56 @@ class Rasterize(chainer.Function):
     def backward_gpu(self, inputs, grad_outputs):
         xp = chainer.cuda.get_array_module(inputs[0])
         faces = xp.ascontiguousarray(inputs[0])
+        textures = xp.ascontiguousarray(inputs[1])
         grad_images = xp.ascontiguousarray(grad_outputs[0])
         grad_faces = xp.ascontiguousarray(xp.zeros_like(faces, dtype='float32'))
-        num_faces = faces.shape[1]
-        image_size = self.image_size
+        grad_textures = xp.ascontiguousarray(xp.zeros_like(textures, dtype='float32'))
+        bs, nf = faces.shape[:2]
+        is_ = self.image_size
+        ts = textures.shape[2]
+
+        # backward texture sampling
+        chainer.cuda.elementwise(
+            'int32 pi, int32 face_index, raw T sampling_weight_map, raw int32 sampling_index_map, ' +
+            'raw T grad_images, raw int32 image_size, raw int32 num_faces, raw int32 texture_size',
+            'raw T grad_textures',
+            '''
+                int is = image_size;
+                int nf = num_faces;
+                int ts = texture_size;
+                int bn = pi / (is * is);    // batch number [0 -> bs]
+
+                if (0 <= face_index) {
+                    float* grad_texture = &grad_textures[(bn * nf + face_index) * ts * ts * ts * 3];
+                    for (int pn = 0; pn < 8; pn++) {
+                        float w = sampling_weight_map[pi * 8 + pn];
+                        int isc = sampling_index_map[pi * 8 + pn];
+                        for (int k = 0; k < 3; k++) atomicAdd(&grad_texture[isc * 3 + k], w * grad_images[pi * 3 + k]);
+                    }
+                }
+            ''',
+            'function',
+        )(
+            xp.arange(bs * is_ * is_).astype('int32'), self.face_index_map.ravel(), self.sampling_weight_map,
+            self.sampling_index_map, grad_images, is_, nf, ts, grad_textures,
+        )
 
         # pseudo gradient
         chainer.cuda.elementwise(
-            'raw float32 faces, raw int32 face_index_map, raw float32 images, ' +
-            'float32 grad_images, int32 image_size, int32 num_faces, float32 eps ',
+            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, ' +
+            'raw float32 grad_images, int32 image_size, int32 num_faces, float32 eps ',
             'raw float32 grad_faces',
             '''
                 /* exit if no gradient from upper layers */
-                if (grad_images == 0) return;
+                const float* grad_pixel = &grad_images[3 * j];
+                const float grad_pixel_sum = grad_pixel[0] + grad_pixel[1] + grad_pixel[2];
+                if (grad_pixel_sum == 0) return;
 
                 /* compute current position & index */
                 const int nf = num_faces;
                 const int is = image_size;
                 const int is2 = is * is;                    // number of pixels
-                const int pi = i;                           // pixel index on all batches
+                const int pi = j;                           // pixel index on all batches
                 const int bn = pi / (is2);                  // batch number
                 const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is]
                 const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is]
@@ -266,7 +297,7 @@ class Rasterize(chainer.Function):
                             const int qfn = face_index_map[qi];
 
                             if (diff == 0) continue;                    // continue if same pixel value
-                            if (0 <= diff * grad_images) continue;      // continue if wrong gradient
+                            if (0 <= diff * grad_pixel_sum) continue;   // continue if wrong gradient
                             if (qfn == qfn_last) continue;              // continue if p & q are on same face
 
                             /* adjacent point to check edge */
@@ -335,8 +366,8 @@ class Rasterize(chainer.Function):
                                     dist_v1 = (0 < dist_v1) ? dist_v1 + eps : dist_v1 - eps;
 
                                     /* gradient */
-                                    const float g_v0 = grad_images * diff / dist_v0;
-                                    const float g_v1 = grad_images * diff / dist_v1;
+                                    const float g_v0 = grad_pixel_sum * diff / dist_v0;
+                                    const float g_v1 = grad_pixel_sum * diff / dist_v1;
 
                                     atomicAdd(&grad_face[vi0 * 3 + axis], g_v0);
                                     atomicAdd(&grad_face[vi1 * 3 + axis], g_v1);
@@ -348,9 +379,10 @@ class Rasterize(chainer.Function):
                 }
             ''',
             'function',
-        )(faces, self.face_index_map, self.images, grad_images.ravel(), image_size, num_faces, self.eps, grad_faces)
+        )(xp.arange(bs * is_ * is_).astype('int32'), faces, self.face_index_map, self.images, grad_images.ravel(),
+          is_, nf, self.eps, grad_faces)
 
-        return grad_faces,
+        return grad_faces, grad_textures
 
     def forward_cpu(self, inputs):
         raise NotImplementedError
