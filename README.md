@@ -12,17 +12,9 @@ This repository only contains the core component and simple examples.
 
 Transforming the silhouette of a teapot into a rectangle. The loss function is the difference bettween the rendered image and the reference image.
 
-Reference image.
+Reference image, optimization, and the result.
 
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_ref.png)
-
-Optimization.
-
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_optimization.gif)
-
-Result.
-
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_result.gif)
+![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_optimization.gif) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_result.gif)
 
 ## Example 3: Optimizing textures
 
