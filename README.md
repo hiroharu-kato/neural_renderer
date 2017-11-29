@@ -10,13 +10,13 @@ This repository only contains the core component and simple examples.
 
 ## Example 2: Optimizing vertices
 
-Transforming the silhouette of a teapot into a rectangle. The loss function is the rendered image and the reference image.
+Transforming the silhouette of a teapot into a rectangle. The loss function is the difference bettween the rendered image and the reference image.
 
 Reference image.
 
 ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_ref.png)
 
-Optimizing.
+Optimization.
 
 ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_optimization.gif)
 
