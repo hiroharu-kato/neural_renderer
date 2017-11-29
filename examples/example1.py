@@ -1,5 +1,11 @@
+"""
+Example 1. Draw a teapot from multiple viewpoints.
+"""
 import argparse
+import glob
 import os
+import subprocess
+
 import chainer
 import numpy as np
 import scipy.misc
@@ -9,10 +15,11 @@ import neural_renderer
 
 def run():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-fi', '--filename_input', type=str, default='./examples/data/teapot.obj')
-    parser.add_argument('-fo', '--filename_output', type=str, default='./examples/data/example1.gif')
+    parser.add_argument('-i', '--filename_input', type=str, default='./examples/data/teapot.obj')
+    parser.add_argument('-o', '--filename_output', type=str, default='./examples/data/example1.gif')
     parser.add_argument('-g', '--gpu', type=int, default=0)
     args = parser.parse_args()
+    working_directory = os.path.dirname(args.filename_output)
 
     # other settings
     camera_distance = 2.732
@@ -21,10 +28,10 @@ def run():
 
     # load .obj
     vertices, faces = neural_renderer.load_obj(args.filename_input)
-    vertices = vertices[None, :, :]
-    faces = faces[None, :, :]
+    vertices = vertices[None, :, :]  # [num_vertices, XYZ] -> [batch_size=1, num_vertices, XYZ]
+    faces = faces[None, :, :]  # [num_faces, 3] -> [batch_size=1, num_faces, 3]
 
-    # create texture
+    # create texture [batch_size=1, num_faces, texture_size, texture_size, texture_size, RGB]
     textures = np.ones((1, faces.shape[1], texture_size, texture_size, texture_size, 3), 'float32')
 
     # to gpu
@@ -36,11 +43,20 @@ def run():
     # create renderer
     renderer = neural_renderer.Renderer()
 
-    for azimuth in range(0, 360, 4):
+    # draw object
+    for num, azimuth in enumerate(range(0, 360, 4)):
         renderer.eye = neural_renderer.get_points_from_angles(camera_distance, elevation, azimuth)
-        images = renderer.render(vertices, faces, textures)
-        image = images.data.get()[0].transpose((1, 2, 0))
-        scipy.misc.imsave('%s/_tmp_%04d.png' % os.path.dirname(args.filename_output), image)
+        images = renderer.render(vertices, faces, textures)  # [batch_size, RGB, image_size, image_size]
+        image = images.data.get()[0].transpose((1, 2, 0))  # [image_size, image_size, RGB]
+        scipy.misc.imsave('%s/_tmp_%04d.png' % (working_directory, num), image)
+
+    # generate gif (need ImageMagick)
+    options = '-delay 8 -loop 0 -layers optimize'
+    subprocess.call('convert %s %s/_tmp_*.png %s' % (options, working_directory, args.filename_output), shell=True)
+
+    # remove temporary files
+    for filename in glob.glob('%s/_tmp_*.png' % working_directory):
+        os.remove(filename)
 
 
 if __name__ == '__main__':
