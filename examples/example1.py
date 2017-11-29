@@ -1,5 +1,5 @@
 """
-Example 1. Draw a teapot from multiple viewpoints.
+Example 1. Drawing a teapot from multiple viewpoints.
 """
 import argparse
 import glob
