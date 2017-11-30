@@ -9,7 +9,7 @@ def perspective(vertices, angle=None):
         angle = xp.array([xp.radians(60)] * vertices.shape[0], 'float32')
 
     width = cf.tan(angle / 2)
-    width = cf.broadcast_to(width, vertices.shape[:2])
+    width = cf.broadcast_to(width[:, None], vertices.shape[:2])
     z = vertices[:, :, 2]
     x = vertices[:, :, 0] / z / width
     y = vertices[:, :, 1] / z / width

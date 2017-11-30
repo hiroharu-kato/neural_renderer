@@ -202,6 +202,7 @@ class RasterizeSilhouette(chainer.Function):
                                     grad_face = &grad_faces[(bn * nf + qfn) * 3 * 3];
                                 } else if (mode == 1) {
                                     if (qfn_last != pfn) continue;
+                                    if (pfn < 0) continue;
                                     face = &faces[(bn * nf + pfn) * 3 * 3];
                                     grad_face = &grad_faces[(bn * nf + pfn) * 3 * 3];
                                 }

@@ -33,7 +33,7 @@ def look_at(vertices, eye, at=None, up=None):
     # create rotation matrix: [bs, 3, 3]
     r = cf.concat((x_axis[:, None, :], y_axis[:, None, :], z_axis[:, None, :]), axis=1)
     if r.shape[0] != vertices.shape[0]:
-        r = cf.broadcast_to(r, vertices.shape)
+        r = cf.broadcast_to(r, (vertices.shape[0], 3, 3))
 
     # apply
     # [bs, nv, 3] -> [bs, nv, 3] -> [bs, nv, 3]
