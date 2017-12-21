@@ -19,11 +19,11 @@ def look_at(vertices, eye, at=None, up=None):
     if isinstance(eye, list) or isinstance(eye, tuple):
         eye = xp.array(eye, 'float32')
     if eye.ndim == 1:
-        eye = eye[None, :]
+        eye = cf.tile(eye[None, :], (eye.shape[0], 1))
     if at.ndim == 1:
-        at = at[None, :]
+        at = cf.tile(at[None, :], (eye.shape[0], 1))
     if up.ndim == 1:
-        up = up[None, :]
+        up = cf.tile(up[None, :], (eye.shape[0], 1))
 
     # create new axes
     z_axis = cf.normalize(at - eye)
