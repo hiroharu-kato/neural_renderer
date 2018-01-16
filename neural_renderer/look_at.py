@@ -11,6 +11,7 @@ def look_at(vertices, eye, at=None, up=None):
     assert (vertices.ndim == 3)
 
     xp = chainer.cuda.get_array_module(vertices)
+    batch_size = vertices.shape[0]
     if at is None:
         at = xp.array([0, 0, 0], 'float32')
     if up is None:
@@ -19,11 +20,11 @@ def look_at(vertices, eye, at=None, up=None):
     if isinstance(eye, list) or isinstance(eye, tuple):
         eye = xp.array(eye, 'float32')
     if eye.ndim == 1:
-        eye = cf.tile(eye[None, :], (eye.shape[0], 1))
+        eye = cf.tile(eye[None, :], (batch_size, 1))
     if at.ndim == 1:
-        at = cf.tile(at[None, :], (eye.shape[0], 1))
+        at = cf.tile(at[None, :], (batch_size, 1))
     if up.ndim == 1:
-        up = cf.tile(up[None, :], (eye.shape[0], 1))
+        up = cf.tile(up[None, :], (batch_size, 1))
 
     # create new axes
     z_axis = cf.normalize(at - eye)
