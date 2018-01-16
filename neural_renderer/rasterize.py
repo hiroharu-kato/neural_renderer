@@ -1,5 +1,6 @@
 import chainer
 import chainer.functions as cf
+import string
 
 
 class Rasterize(chainer.Function):
@@ -63,12 +64,12 @@ class Rasterize(chainer.Function):
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
         chainer.cuda.elementwise(
-            'raw float32 faces, int32 num_faces, int32 image_size, float32 near, float32 far',
+            'raw float32 faces',
             'int32 face_index_map, raw float32 weight_map, raw float32 face_map, float32 z_map',
-            '''
+            string.Template('''
                 /* current position & index */
-                const int nf = num_faces;                   // short name
-                const int is = image_size;                  // short name
+                const int nf = ${num_faces};                // short name
+                const int is = ${image_size};               // short name
                 const int is2 = is * is;                    // number of pixels
                 const int pi = i;                           // pixel index on all batches
                 const int bn = pi / (is2);                  // batch number
@@ -79,7 +80,7 @@ class Rasterize(chainer.Function):
 
                 /* for each face */
                 float* face;            // current face
-                float z_min = far;      // z of nearest face
+                float z_min = ${far};   // z of nearest face
                 int z_min_fn = -1;      // face number of nearest face
                 float z_min_weight[3];  //
                 float z_min_face[9];    //
@@ -128,7 +129,7 @@ class Rasterize(chainer.Function):
 
                     /* compute 1 / zp = sum(w / z) & check z-buffer */
                     const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
-                    if (zp <= near || far <= zp) continue;
+                    if (zp <= ${near} || ${far} <= zp) continue;
 
                     /* check nearest */
                     if (zp < z_min) {
@@ -145,24 +146,25 @@ class Rasterize(chainer.Function):
                     memcpy(&weight_map[pi * 3], z_min_weight, 3 * sizeof(float));
                     memcpy(&face_map[pi * 9], z_min_face, 9 * sizeof(float));
                 }
-            ''',
+            ''').substitute(
+                num_faces=nf,
+                image_size=is_,
+                near=self.near,
+                far=self.far,
+            ),
             'function',
-        )(
-            faces, nf, is_, self.near, self.far, self.face_index_map.ravel(), self.weight_map, self.face_map,
-            self.z_map.ravel(),
-        )
+        )(faces, self.face_index_map.ravel(), self.weight_map, self.face_map, self.z_map.ravel())
 
         # texture sampling
         background_colors = xp.array(self.background_color, 'float32')
         chainer.cuda.elementwise(
             'int32 pi, raw float32 textures, raw float32 face_map, int32 face_index, raw float32 weight_map, ' +
-            'float32 z, int32 image_size, int32 num_faces, int32 texture_size, raw float32 background_color, ' +
-            'float32 eps',
+            'float32 z, raw float32 background_color',
             'raw float32 images, raw float32 sampling_weight_map, raw int32 sampling_index_map',
-            '''
-                int is = image_size;
-                int nf = num_faces;
-                int ts = texture_size;
+            string.Template('''
+                int is = ${image_size};
+                int nf = ${num_faces};
+                int ts = ${texture_size};
                 int bn = pi / (is * is);
 
                 float* pixel = &images[pi * 3];
@@ -175,7 +177,7 @@ class Rasterize(chainer.Function):
                     /* get texture index (float) */
                     float texture_index_float[3];
                     for (int k = 0; k < 3; k++) {
-                        texture_index_float[k] = weight[k] * (ts - 1 - eps) * (z / (face[2 + 3 * k]));
+                        texture_index_float[k] = weight[k] * (ts - 1 - ${eps}) * (z / (face[2 + 3 * k]));
                     }
                     for (int pn = 0; pn < 8; pn++) {
                         /* blend */
@@ -200,11 +202,16 @@ class Rasterize(chainer.Function):
                 } else {
                     for (int k = 0; k < 3; k++) pixel[k] = background_color[k];
                 }
-            ''',
+            ''').substitute(
+                image_size=is_,
+                num_faces=nf,
+                texture_size=ts,
+                eps=self.eps,
+            ),
             'function',
         )(
             xp.arange(bs * is_ * is_).astype('int32'), textures, self.face_map, self.face_index_map.ravel(),
-            self.weight_map, self.z_map.ravel(), is_, nf, ts, background_colors, self.eps,
+            self.weight_map, self.z_map.ravel(), background_colors,
             self.images, self.sampling_weight_map, self.sampling_index_map,
         )
         return self.images,
@@ -222,13 +229,13 @@ class Rasterize(chainer.Function):
 
         # backward texture sampling
         chainer.cuda.elementwise(
-            'int32 pi, int32 face_index, raw T sampling_weight_map, raw int32 sampling_index_map, ' +
-            'raw T grad_images, raw int32 image_size, raw int32 num_faces, raw int32 texture_size',
+            'int32 pi, int32 face_index, raw T sampling_weight_map, raw int32 sampling_index_map, raw T grad_images, ' +
             'raw T grad_textures',
-            '''
-                int is = image_size;
-                int nf = num_faces;
-                int ts = texture_size;
+            '',
+            string.Template('''
+                int is = ${image_size};
+                int nf = ${num_faces};
+                int ts = ${texture_size};
                 int bn = pi / (is * is);    // batch number [0 -> bs]
 
                 if (0 <= face_index) {
@@ -239,27 +246,31 @@ class Rasterize(chainer.Function):
                         for (int k = 0; k < 3; k++) atomicAdd(&grad_texture[isc * 3 + k], w * grad_images[pi * 3 + k]);
                     }
                 }
-            ''',
+            ''').substitute(
+                image_size=is_,
+                num_faces=nf,
+                texture_size=ts,
+            ),
             'function',
         )(
             xp.arange(bs * is_ * is_).astype('int32'), self.face_index_map.ravel(), self.sampling_weight_map,
-            self.sampling_index_map, grad_images, is_, nf, ts, grad_textures,
+            self.sampling_index_map, grad_images, grad_textures,
         )
 
         # pseudo gradient
         chainer.cuda.elementwise(
             'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, ' +
-            'raw float32 grad_images, int32 image_size, int32 num_faces, float32 eps ',
-            'raw float32 grad_faces',
-            '''
+            'raw float32 grad_images, raw float32 grad_faces',
+            '',
+            string.Template('''
                 /* exit if no gradient from upper layers */
                 const float* grad_pixel = &grad_images[3 * j];
                 const float grad_pixel_sum = grad_pixel[0] + grad_pixel[1] + grad_pixel[2];
                 if (grad_pixel_sum == 0) return;
 
                 /* compute current position & index */
-                const int nf = num_faces;
-                const int is = image_size;
+                const int nf = ${num_faces};
+                const int is = ${image_size};
                 const int is2 = is * is;                    // number of pixels
                 const int pi = j;                           // pixel index on all batches
                 const int bn = pi / (is2);                  // batch number
@@ -363,8 +374,8 @@ class Rasterize(chainer.Function):
                                     }
 
                                     /* add small epsilon */
-                                    dist_v0 = (0 < dist_v0) ? dist_v0 + eps : dist_v0 - eps;
-                                    dist_v1 = (0 < dist_v1) ? dist_v1 + eps : dist_v1 - eps;
+                                    dist_v0 = (0 < dist_v0) ? dist_v0 + ${eps} : dist_v0 - ${eps};
+                                    dist_v1 = (0 < dist_v1) ? dist_v1 + ${eps} : dist_v1 - ${eps};
 
                                     /* gradient */
                                     const float g_v0 = grad_pixel_sum * diff / dist_v0;
@@ -378,10 +389,16 @@ class Rasterize(chainer.Function):
                         }
                     }
                 }
-            ''',
+            ''').substitute(
+                image_size=is_,
+                num_faces=nf,
+                eps=self.eps,
+            ),
             'function',
-        )(xp.arange(bs * is_ * is_).astype('int32'), faces, self.face_index_map, self.images, grad_images.ravel(),
-          is_, nf, self.eps, grad_faces)
+        )(
+            xp.arange(bs * is_ * is_).astype('int32'), faces, self.face_index_map, self.images, grad_images.ravel(),
+            grad_faces,
+        )
 
         return grad_faces, grad_textures
 

@@ -1,6 +1,6 @@
 import chainer
 import chainer.functions as cf
-
+import string
 
 class RasterizeSilhouette(chainer.Function):
     def __init__(self, image_size, near, far, eps):
@@ -36,12 +36,12 @@ class RasterizeSilhouette(chainer.Function):
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
         chainer.cuda.elementwise(
-            'raw float32 faces, int32 num_faces, int32 image_size, float32 near, float32 far',
+            'raw float32 faces',
             'int32 face_index_map, float32 images',
-            '''
+            string.Template('''
                 /* current position & index */
-                const int nf = num_faces;                   // short name
-                const int is = image_size;                  // short name
+                const int nf = ${num_faces};                // short name
+                const int is = ${image_size};               // short name
                 const int is2 = is * is;                    // number of pixels
                 const int pi = i;                           // pixel index on all batches
                 const int bn = pi / (is2);                  // batch number
@@ -52,7 +52,7 @@ class RasterizeSilhouette(chainer.Function):
 
                 /* for each face */
                 float* face;            // current face
-                float z_min = far;      // z of nearest face
+                float z_min = ${far};      // z of nearest face
                 int z_min_fn = -1;      // face number of nearest face
                 for (int fn = 0; fn < nf; fn++) {
                     /* go to next face */
@@ -99,7 +99,7 @@ class RasterizeSilhouette(chainer.Function):
 
                     /* compute 1 / zp = sum(w / z) & check z-buffer */
                     const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
-                    if (zp <= near || far <= zp) continue;
+                    if (zp <= ${near} || ${far} <= zp) continue;
 
                     /* check nearest */
                     if (zp < z_min) {
@@ -112,9 +112,14 @@ class RasterizeSilhouette(chainer.Function):
                     face_index_map = z_min_fn;
                     images = 1.;
                 }
-            ''',
+            ''').substitute(
+                num_faces=num_faces,
+                image_size=image_size,
+                near=self.near,
+                far=self.far,
+            ),
             'function',
-        )(faces, num_faces, image_size, self.near, self.far, self.face_index_map.ravel(), self.images.ravel())
+        )(faces, self.face_index_map.ravel(), self.images.ravel())
 
         return self.images,
 
@@ -128,16 +133,16 @@ class RasterizeSilhouette(chainer.Function):
 
         # pseudo gradient
         chainer.cuda.elementwise(
-            'raw float32 faces, raw int32 face_index_map, raw float32 images, ' +
-            'float32 grad_images, int32 image_size, int32 num_faces, float32 eps ',
+            'raw float32 faces, raw int32 face_index_map, raw float32 images, float32 grad_images, ' +
             'raw float32 grad_faces',
-            '''
+            '',
+            string.Template('''
                 /* exit if no gradient from upper layers */
                 if (grad_images == 0) return;
 
                 /* compute current position & index */
-                const int nf = num_faces;
-                const int is = image_size;
+                const int nf = ${num_faces};
+                const int is = ${image_size};
                 const int is2 = is * is;                    // number of pixels
                 const int pi = i;                           // pixel index on all batches
                 const int bn = pi / (is2);                  // batch number
@@ -241,8 +246,8 @@ class RasterizeSilhouette(chainer.Function):
                                     }
 
                                     /* add small epsilon */
-                                    dist_v0 = (0 < dist_v0) ? dist_v0 + eps : dist_v0 - eps;
-                                    dist_v1 = (0 < dist_v1) ? dist_v1 + eps : dist_v1 - eps;
+                                    dist_v0 = (0 < dist_v0) ? dist_v0 + ${eps} : dist_v0 - ${eps};
+                                    dist_v1 = (0 < dist_v1) ? dist_v1 + ${eps} : dist_v1 - ${eps};
 
                                     /* gradient */
                                     const float g_v0 = grad_images * diff / dist_v0;
@@ -256,9 +261,13 @@ class RasterizeSilhouette(chainer.Function):
                         }
                     }
                 }
-            ''',
+            ''').substitute(
+                image_size=image_size,
+                num_faces=num_faces,
+                eps=self.eps,
+            ),
             'function',
-        )(faces, self.face_index_map, self.images, grad_images.ravel(), image_size, num_faces, self.eps, grad_faces)
+        )(faces, self.face_index_map, self.images, grad_images.ravel(), grad_faces)
 
         return grad_faces,
 
