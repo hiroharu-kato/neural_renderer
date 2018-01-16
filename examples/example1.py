@@ -9,6 +9,7 @@ import subprocess
 import chainer
 import numpy as np
 import scipy.misc
+import tqdm
 
 import neural_renderer
 
@@ -44,7 +45,9 @@ def run():
     renderer = neural_renderer.Renderer()
 
     # draw object
-    for num, azimuth in enumerate(range(0, 360, 4)):
+    loop = tqdm.tqdm(range(0, 360, 4))
+    for num, azimuth in enumerate(loop):
+        loop.set_description('Drawing')
         renderer.eye = neural_renderer.get_points_from_angles(camera_distance, elevation, azimuth)
         images = renderer.render(vertices, faces, textures)  # [batch_size, RGB, image_size, image_size]
         image = images.data.get()[0].transpose((1, 2, 0))  # [image_size, image_size, RGB]

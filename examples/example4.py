@@ -10,6 +10,7 @@ import chainer
 import chainer.functions as cf
 import numpy as np
 import scipy.misc
+import tqdm
 
 import neural_renderer
 
@@ -33,7 +34,7 @@ class Model(chainer.Link):
             self.image_ref = (scipy.misc.imread(filename_ref).max(-1) != 0).astype('float32')
 
             # camera parameters
-            self.camera_position = chainer.Parameter(np.array([6, 10, -15], 'float32'))
+            self.camera_position = chainer.Parameter(np.array([6, 10, -14], 'float32'))
 
             # setup renderer
             renderer = neural_renderer.Renderer()
@@ -75,7 +76,8 @@ def run():
 
     optimizer = chainer.optimizers.Adam(alpha=0.1)
     optimizer.setup(model)
-    for i in range(1000):
+    loop = tqdm.tqdm(range(1000))
+    for i in loop:
         optimizer.target.cleargrads()
         loss = model()
         loss.backward()
@@ -83,8 +85,8 @@ def run():
         images = model.renderer.render(model.vertices, model.faces, cf.tanh(model.textures))
         image = images.data.get()[0]
         scipy.misc.toimage(image, cmin=0, cmax=1).save('%s/_tmp_%04d.png' % (working_directory, i))
-        print i, loss, model.camera_position.grad
-        if loss.data < 80:
+        loop.set_description('Optimizing (loss %.4f)' % loss.data)
+        if loss.data < 70:
             break
     make_gif(working_directory, args.filename_output)
 

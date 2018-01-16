@@ -10,6 +10,7 @@ import chainer
 import chainer.functions as cf
 import numpy as np
 import scipy.misc
+import tqdm
 
 import neural_renderer
 
@@ -74,15 +75,18 @@ def run():
 
     optimizer = chainer.optimizers.Adam(alpha=0.1, beta1=0.5)
     optimizer.setup(model)
-    for i in range(300):
+    loop = tqdm.tqdm(range(300))
+    for _ in loop:
+        loop.set_description('Optimizing')
         optimizer.target.cleargrads()
         loss = model()
         loss.backward()
         optimizer.update()
-        print i, loss
 
     # draw object
-    for num, azimuth in enumerate(range(0, 360, 4)):
+    loop = tqdm.tqdm(range(0, 360, 4))
+    for num, azimuth in enumerate(loop):
+        loop.set_description('Drawing')
         model.renderer.eye = neural_renderer.get_points_from_angles(2.732, 0, azimuth)
         images = model.renderer.render(model.vertices, model.faces, cf.tanh(model.textures))
         image = images.data.get()[0].transpose((1, 2, 0))

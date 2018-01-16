@@ -5,5 +5,5 @@ setuptools.setup(
     version='0.0.1',
     test_suite='tests',
     packages=['neural_renderer'],
-    install_requires=['numpy', 'chainer', 'cupy'],
+    install_requires=['numpy', 'chainer', 'cupy', 'tqdm'],
 )

@@ -5,7 +5,18 @@ This is the code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.co
 This repository only contains the core component and simple examples. Other examples are on the [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
 
 ## Installation
-```sudo python setup.py install```
+```
+sudo python setup.py install
+```
+
+## Running examples
+```
+python ./examples/example1.py
+python ./examples/example2.py
+python ./examples/example3.py
+python ./examples/example4.py
+```
+
 
 ## Example 1: Drawing an object from multiple viewpoints
 
