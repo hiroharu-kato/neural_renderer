@@ -4,6 +4,13 @@ This is the code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.co
 
 This repository only contains the core component and simple examples. Other examples are on the [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
 
+Related repositories:
+
+* Neural Renderer (this repository)
+    * Single-image 3D mesh reconstruction
+    * 2D-to-3D style transfer
+    * [3D DeepDream](https://github.com/hiroharu-kato/deep_dream_3d)
+
 ## Installation
 ```
 sudo python setup.py install
@@ -36,7 +43,7 @@ Matching the color of a teapot with a reference image.
 
 Reference image, result.
 
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_result.gif) 
+![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_result.gif)
 
 ## Example 4: Finding camera parameters
 
