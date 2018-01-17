@@ -4,6 +4,8 @@ from lighting import lighting
 from load_obj import load_obj
 from look import look
 from look_at import look_at
+from optimizers import Adam
+from mesh import Mesh
 from perspective import perspective
 from rasterize import rasterize
 from rasterize_silhouettes import rasterize_silhouettes
