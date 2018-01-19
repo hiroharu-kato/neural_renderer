@@ -2,7 +2,7 @@
 
 [OpenDR](https://github.com/mattloper/opendr/wiki) also performs approximate differentiation of rasterization. However, its behavior is very different from our Neural Renderer. Here, we compare them from two perspectives.
 
-## Our differentiation is affected by distant pixels
+## Our back-prop is affected by distant pixels
 
 The derivative of OpenDR considers only the pixels on the edge, but our derivatives account for distant pixels.
 
@@ -26,7 +26,7 @@ The figures below are examples of differentiation of Neural Renderer. Even if th
 
 In practical applications, important supervision signals do not necessarily appear on the edges of polygons. Therefore, our gradients are more suitable for the optimization of vertices.
 
-## Our differentiation is affected by the objective function
+## Our back-prop is affected by the objective function
 
 In the above examples, the loss function was "the specified pixel should be darker". Rather, what happens when the loss function is "the specified pixel should be brighter"?
 
@@ -48,4 +48,4 @@ Neural Renderer propagates gradients so that the value of the objective function
     <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_-1_8_5.png" width=20%>
 </div>
 
-If the objective function is "the specified pixel should be brighter," the gradient by OpenDR cannot be used for optimization, while Neural Renderer calculates the desired gradient. This is accomplished by using the gradient back-propagated from the objective function to the renderer. This is the intention that we say "the differentiation of our renderer is designed for neural networks."
+If the objective function is "the specified pixel should be brighter," the gradient by OpenDR cannot be used for optimization, while Neural Renderer calculates the desired gradient. This is accomplished by using the gradient back-propagated from the objective function to the renderer. This is the intention that we say "the backward pass of our renderer is designed for neural networks."
