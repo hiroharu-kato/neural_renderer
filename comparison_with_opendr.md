@@ -1,68 +1,51 @@
-# Neural 3D Mesh Renderer
+# Comparison of Neural Renderer and OpenDR
 
-This is the code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
+[OpenDR](https://github.com/mattloper/opendr/wiki) also performs approximate differentiation of rasterization. However, its behavior is very different from our Neural Renderer. Here, we compare them from two perspectives.
 
-This repository only contains the core component and simple examples. Other examples are on the [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
+## Our differentiation is affected by distant pixels
 
-Related repositories:
+The derivative of OpenDR considers only the pixels on the edge, but our derivatives account for distant pixels.
 
-* Neural Renderer (this repository)
-    * Single-image 3D mesh reconstruction
-    * 2D-to-3D style transfer
-    * [3D DeepDream](https://github.com/hiroharu-kato/deep_dream_3d)
+The figures below are examples of differentiation of OpenDR. The loss function is "the pixel painted blue should be darker." The green arrow represents the direction in which the vertex moves by the gradient descent, using the calculated derivative. When the blue pixel is outside the polygon, or when it is more than two pixels away from the edge, we can see that the gradients propagated to the vertices are zero.
 
-## Installation
-```
-sudo python setup.py install
-```
+<div>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_1_8_2.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_1_8_3.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_1_8_4.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_1_8_5.png" width=20%>
+</div>
 
-## Running examples
-```
-python ./examples/example1.py
-python ./examples/example2.py
-python ./examples/example3.py
-python ./examples/example4.py
-```
+The figures below are examples of differentiation of Neural Renderer. Even if the blue pixel is more than two pixels away from the edge, the gradient does not become zero. Also, due to this effect, the vertices have non-zero vertical gradients.
 
+<div>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_1_8_2.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_1_8_3.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_1_8_4.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_1_8_5.png" width=20%>
+</div>
 
-## Example 1: Drawing an object from multiple viewpoints
+In practical applications, important supervision signals do not necessarily appear on the edges of polygons. Therefore, our gradients are more suitable for the optimization of vertices.
 
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example1.gif)
+## Our differentiation is affected by the objective function
 
-## Example 2: Optimizing vertices
+In the above examples, the loss function was "the specified pixel should be darker". Rather, what happens when the loss function is "the specified pixel should be brighter"?
 
-Transforming the silhouette of a teapot into a rectangle. The loss function is the difference bettween the rendered image and the reference image.
+The figure below shows the gradients in OpenDR using this loss function. In the third image, the vertices are about to move to the left. However, even if they move, the specified pixel should not be brighter.
 
-Reference image, optimization, and the result.
+<div>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_-1_8_2.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_-1_8_3.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_-1_8_4.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/opendr_-1_8_5.png" width=20%>
+</div>
 
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_optimization.gif) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example2_result.gif)
+Neural Renderer propagates gradients so that the value of the objective function becomes small. The figures below show this.
 
-## Example 3: Optimizing textures
+<div>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_-1_8_2.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_-1_8_3.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_-1_8_4.png" width=20%>
+    <img src="https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/misc/opendr/neural_renderer_-1_8_5.png" width=20%>
+</div>
 
-Matching the color of a teapot with a reference image.
-
-Reference image, result.
-
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example3_result.gif)
-
-## Example 4: Finding camera parameters
-
-The derivative of images with respect to camera pose can be computed through this renderer. In this example the position of the camera is optimized by gradient descent.
-
-From left to right: reference image, initial state, and optimization process.
-
-![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_init.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_result.gif)
-
-
-
-
-## Citation
-
-```
-@article{kato2017renderer,
-  title={Neural 3D Mesh Renderer},
-  author={Kato, Hiroharu and Ushiku, Yoshitaka and Harada, Tatsuya},
-  journal={arXiv:1711.07566},
-  year={2017}
-}
-```
+If the objective function is "the specified pixel should be brighter," the gradient by OpenDR cannot be used for optimization, while Neural Renderer calculates the desired gradient. This is accomplished by using the gradient back-propagated from the objective function to the renderer. This is the intention that we say "the differentiation of our renderer is designed for neural networks."
