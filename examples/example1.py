@@ -51,7 +51,7 @@ def run():
         renderer.eye = neural_renderer.get_points_from_angles(camera_distance, elevation, azimuth)
         images = renderer.render(vertices, faces, textures)  # [batch_size, RGB, image_size, image_size]
         image = images.data.get()[0].transpose((1, 2, 0))  # [image_size, image_size, RGB]
-        scipy.misc.imsave('%s/_tmp_%04d.png' % (working_directory, num), image)
+        scipy.misc.toimage(image, cmin=0, cmax=1).save('%s/_tmp_%04d.png' % (working_directory, num))
 
     # generate gif (need ImageMagick)
     options = '-delay 8 -loop 0 -layers optimize'

@@ -38,19 +38,26 @@ class Renderer(object):
         return images
 
     def render(self, vertices, faces, textures):
+        # fill back
+        if self.fill_back:
+            faces =  cf.concat((faces, faces[:, :, ::-1]), axis=1).data
+            textures = cf.concat((textures, textures.transpose((0, 1, 4, 3, 2, 5))), axis=1)
+
+        # lighting
+        faces_l = neural_renderer.vertices_to_faces(vertices, faces)
+        textures = neural_renderer.lighting(
+            faces_l, textures, self.light_intensity_ambient, self.light_intensity_directional)
+
+        # transform vertices
         if self.camera_mode == 'look_at':
             vertices = neural_renderer.look_at(vertices, self.eye)
         elif self.camera_mode == 'look':
             vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
-
         if self.perspective:
             vertices = neural_renderer.perspective(vertices)
+
         faces = neural_renderer.vertices_to_faces(vertices, faces)
-        if self.fill_back:
-            faces = cf.concat((faces, faces[:, :, ::-1]), axis=1)
-            textures = cf.concat((textures, textures.transpose((0, 1, 4, 3, 2, 5))), axis=1)
-        textures = neural_renderer.lighting(
-            faces, textures, self.light_intensity_ambient, self.light_intensity_directional)
+
         images = neural_renderer.rasterize(
             faces, textures, self.image_size, self.anti_aliasing, self.near, self.far, self.rasterizer_eps,
             self.background_color)
