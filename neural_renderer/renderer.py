@@ -22,6 +22,9 @@ class Renderer(object):
         # light
         self.light_intensity_ambient = 0.5
         self.light_intensity_directional = 0.5
+        self.light_color_ambient = [1, 1, 1]
+        self.light_color_directional = [1, 1, 1]
+        self.light_direction = [0, 1, 0]
 
     def render_silhouettes(self, vertices, faces):
         if self.camera_mode == 'look_at':
@@ -46,7 +49,13 @@ class Renderer(object):
         # lighting
         faces_l = neural_renderer.vertices_to_faces(vertices, faces)
         textures = neural_renderer.lighting(
-            faces_l, textures, self.light_intensity_ambient, self.light_intensity_directional)
+            faces_l,
+            textures,
+            self.light_intensity_ambient,
+            self.light_intensity_directional,
+            self.light_color_ambient,
+            self.light_color_directional,
+            self.light_direction)
 
         # transform vertices
         if self.camera_mode == 'look_at':
