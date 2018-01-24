@@ -8,7 +8,7 @@ Related repositories:
 
 * Neural Renderer (this repository)
     * Single-image 3D mesh reconstruction
-    * 2D-to-3D style transfer
+    * [2D-to-3D style transfer](https://github.com/hiroharu-kato/style_transfer_3d)
     * [3D DeepDream](https://github.com/hiroharu-kato/deep_dream_3d)
 
 ## Installation
@@ -52,8 +52,6 @@ The derivative of images with respect to camera pose can be computed through thi
 From left to right: reference image, initial state, and optimization process.
 
 ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_ref.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_init.png) ![](https://raw.githubusercontent.com/hiroharu-kato/neural_renderer/master/examples/data/example4_result.gif)
-
-
 
 
 ## Citation
