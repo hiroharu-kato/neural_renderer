@@ -59,9 +59,12 @@ class TestRasterizeSilhouettes(unittest.TestCase):
             for j in range(2):
                 axis = 'x' if j == 0 else 'y'
                 vertices2 = cp.copy(vertices.data)
-                vertices2[i, j] -= 1. / vertices.grad[i, j]
-                images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
-                image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
+                if vertices.grad[i, j] != 0.0:
+                    vertices2[i, j] -= 1. / vertices.grad[i, j]
+                    images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
+                    image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
+                else:
+                    image = np.zeros((64, 64, 3))
                 image[pyi, pxi] = [1, 0, 0]
                 ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case1_v%d_%s.png' % (i, axis))
                 ref = ref.astype('float32') / 255
@@ -91,9 +94,12 @@ class TestRasterizeSilhouettes(unittest.TestCase):
             for j in range(2):
                 axis = 'x' if j == 0 else 'y'
                 vertices2 = cp.copy(vertices.data)
-                vertices2[i, j] -= 1. / vertices.grad[i, j]
-                images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
-                image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
+                if vertices.grad[i, j] != 0.0:
+                    vertices2[i, j] -= 1. / vertices.grad[i, j]
+                    images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
+                    image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
+                else:
+                    image = np.zeros((64, 64, 3))
                 image[pyi, pxi] = [1, 0, 0]
                 ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case2_v%d_%s.png' % (i, axis))
                 ref = ref.astype('float32') / 255

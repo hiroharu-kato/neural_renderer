@@ -25,7 +25,8 @@ class RasterizeSilhouette(chainer.Function):
 
     def forward_gpu(self, inputs):
         xp = chainer.cuda.get_array_module(inputs[0])
-        faces = xp.ascontiguousarray(inputs[0])
+        faces = inputs[0]
+        faces = xp.ascontiguousarray(faces)
         batch_size, num_faces = faces.shape[:2]
         image_size = self.image_size
 
@@ -35,82 +36,112 @@ class RasterizeSilhouette(chainer.Function):
 
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
+        # fast implementation using unsafe pseudo mutex
+        loop = xp.arange(batch_size * num_faces).astype('int32')
+        lock = xp.zeros(self.images.shape, 'int32')
+        z_buffer = xp.zeros(self.images.shape, 'float32') + self.far
         chainer.cuda.elementwise(
-            'raw float32 faces',
-            'int32 face_index_map, float32 images',
+            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, raw float32 z_buffer, ' +
+            'raw int32 lock',
+            '',
             string.Template('''
-                /* current position & index */
-                const int nf = ${num_faces};                // short name
-                const int is = ${image_size};               // short name
-                const int is2 = is * is;                    // number of pixels
-                const int pi = i;                           // pixel index on all batches
-                const int bn = pi / (is2);                  // batch number
-                const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is - 1]
-                const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is - 1]
-                const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
-                const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
+                const int bn = i / ${num_faces};
+                const int fn = i % ${num_faces};
+                const int is = ${image_size};
+                const float* face = &faces[i * 9];
 
-                /* for each face */
-                float* face;            // current face
-                float z_min = ${far};      // z of nearest face
-                int z_min_fn = -1;      // face number of nearest face
-                for (int fn = 0; fn < nf; fn++) {
-                    /* go to next face */
-                    if (fn == 0) {
-                        face = &faces[(bn * nf) * 3 * 3];
-                    } else {
-                        face += 3 * 3;
-                    }
+                /* check back */
+                if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
 
-                    /* get vertex of current face */
-                    const float x[3] = {face[0], face[3], face[6]};
-                    const float y[3] = {face[1], face[4], face[7]};
-                    const float z[3] = {face[2], face[5], face[8]};
-
-                    /* check too close & too far */
-                    if (z[0] <= 0 || z[1] <= 0 || z[2] <= 0) continue;
-                    if (z_min < z[0] && z_min < z[1] && z_min < z[2]) continue;
-
-                    /* check [py, px] is inside the face */
-                    if (((py - y[0]) * (x[1] - x[0]) < (px - x[0]) * (y[1] - y[0])) ||
-                        ((py - y[1]) * (x[2] - x[1]) < (px - x[1]) * (y[2] - y[1])) ||
-                        ((py - y[2]) * (x[0] - x[2]) < (px - x[2]) * (y[0] - y[2]))) continue;
-
-                    /* compute f_inv */
-                    float f_inv[9] = {
-                        y[1] - y[2], x[2] - x[1], x[1] * y[2] - x[2] * y[1],
-                        y[2] - y[0], x[0] - x[2], x[2] * y[0] - x[0] * y[2],
-                        y[0] - y[1], x[1] - x[0], x[0] * y[1] - x[1] * y[0]};
-                    float f_inv_denominator = x[2] * (y[0] - y[1]) + x[0] * (y[1] - y[2]) + x[1] * (y[2] - y[0]);
-                    for (int k = 0; k < 9; k++) f_inv[k] /= f_inv_denominator;
-
-                    /* compute w = f_inv * p */
-                    float w[3];
-                    for (int k = 0; k < 3; k++) w[k] = f_inv[3 * k + 0] * px + f_inv[3 * k + 1] * py + f_inv[3 * k + 2];
-
-                    /* sum(w) -> 1, 0 < w < 1 */
-                    float w_sum = 0;
-                    for (int k = 0; k < 3; k++) {
-                        if (w[k] < 0) w[k] = 0;
-                        if (1 < w[k]) w[k] = 1;
-                        w_sum += w[k];
-                    }
-                    for (int k = 0; k < 3; k++) w[k] /= w_sum;
-
-                    /* compute 1 / zp = sum(w / z) & check z-buffer */
-                    const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
-                    if (zp <= ${near} || ${far} <= zp) continue;
-
-                    /* check nearest */
-                    if (zp < z_min) {
-                        z_min = zp;
-                        z_min_fn = fn;
-                    }
+                /* p0, p1, p2 = leftmost, middle, rightmost points */
+                int p0_i, p1_i, p2_i;
+                float p0_xi, p0_yi, p0_zp, p1_xi, p1_yi, p1_zp, p2_xi, p2_yi, p2_zp;
+                if (face[0] < face[3]) {
+                    if (face[6] < face[0]) p0_i = 2; else p0_i = 0;
+                    if (face[3] < face[6]) p2_i = 2; else p2_i = 1;
+                } else {
+                    if (face[6] < face[3]) p0_i = 2; else p0_i = 1;
+                    if (face[0] < face[6]) p2_i = 2; else p2_i = 0;
                 }
-                /* set to buffer */
-                if (0 <= z_min_fn) {
-                    face_index_map = z_min_fn;
-                    images = 1.;
+                for (int k = 0; k < 3; k++) if (p0_i != k && p2_i != k) p1_i = k;
+                p0_xi = (face[3 * p0_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p0_yi = (face[3 * p0_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p1_xi = (face[3 * p1_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p1_yi = (face[3 * p1_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p2_xi = (face[3 * p2_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p2_yi = (face[3 * p2_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                p0_zp = face[3 * p0_i + 2];
+                p1_zp = face[3 * p1_i + 2];
+                p2_zp = face[3 * p2_i + 2];
+                if (p0_xi == p2_xi) return; // line, not triangle
+
+                /* compute face_inv */
+                float face_inv[9] = {
+                    p1_yi - p2_yi, p2_xi - p1_xi, p1_xi * p2_yi - p2_xi * p1_yi,
+                    p2_yi - p0_yi, p0_xi - p2_xi, p2_xi * p0_yi - p0_xi * p2_yi,
+                    p0_yi - p1_yi, p1_xi - p0_xi, p0_xi * p1_yi - p1_xi * p0_yi};
+                float face_inv_denominator = (
+                    p2_xi * (p0_yi - p1_yi) +
+                    p0_xi * (p1_yi - p2_yi) +
+                    p1_xi * (p2_yi - p0_yi));
+                for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
+
+                /* from left to right */
+                int xi_min = max(ceil(p0_xi), 0.);
+                int xi_max = min(p2_xi, is - 1.);
+                for (int xi = xi_min; xi <= xi_max; xi++) {
+                    /* compute yi_min and yi_max */
+                    float yi1, yi2;
+                    if (xi <= p1_xi) {
+                        if (p1_xi - p0_xi != 0) {
+                            yi1 = (p1_yi - p0_yi) / (p1_xi - p0_xi) * (xi - p0_xi) + p0_yi;
+                        } else {
+                            yi1 = p1_yi;
+                        }
+                    } else {
+                        if (p2_xi - p1_xi != 0) {
+                            yi1 = (p2_yi - p1_yi) / (p2_xi - p1_xi) * (xi - p1_xi) + p1_yi;
+                        } else {
+                            yi1 = p1_yi;
+                        }
+                    }
+                    yi2 = (p2_yi - p0_yi) / (p2_xi - p0_xi) * (xi - p0_xi) + p0_yi;
+
+                    /* from up to bottom */
+                    int yi_min = max(0., ceil(min(yi1, yi2)));
+                    int yi_max = min(max(yi1, yi2), is - 1.);
+                    for (int yi = yi_min; yi <= yi_max; yi++) {
+                        int index = bn * is * is + yi * is + xi;
+
+                        /* compute w = face_inv * p */
+                        float w[3];
+                        for (int k = 0; k < 3; k++) w[k] = (
+                            face_inv[3 * k + 0] * xi +
+                            face_inv[3 * k + 1] * yi +
+                            face_inv[3 * k + 2]);
+
+                        /* sum(w) -> 1, 0 < w < 1 */
+                        float w_sum = 0;
+                        for (int k = 0; k < 3; k++) {
+                            if (w[k] < 0) w[k] = 0;
+                            if (1 < w[k]) w[k] = 1;
+                            w_sum += w[k];
+                        }
+                        for (int k = 0; k < 3; k++) w[k] /= w_sum;
+
+                        /* compute 1 / zp = sum(w / z) */
+                        const float zp = 1. / (w[0] / p0_zp + w[1] / p1_zp + w[2] / p2_zp);
+                        if (zp <= ${near} || ${far} <= zp) continue;
+
+                        /* lock and update */
+                        while (atomicAdd(&lock[index], 0) != 0) {}
+                        if (zp < z_buffer[index]) {
+                            atomicExch(&images[index], 1);
+                            atomicExch(&face_index_map[index], fn);
+                            atomicExch(&z_buffer[index], zp);
+                        }
+                        atomicExch(&lock[index], 0);
+                    }
                 }
             ''').substitute(
                 num_faces=num_faces,
@@ -119,7 +150,7 @@ class RasterizeSilhouette(chainer.Function):
                 far=self.far,
             ),
             'function',
-        )(faces, self.face_index_map.ravel(), self.images.ravel())
+        )(loop, faces.ravel(), self.face_index_map.ravel(), self.images.ravel(), z_buffer, lock)
 
         return self.images,
 
