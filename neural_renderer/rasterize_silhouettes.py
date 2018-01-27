@@ -163,142 +163,294 @@ class RasterizeSilhouette(chainer.Function):
         image_size = self.image_size
 
         # pseudo gradient
-        chainer.cuda.elementwise(
-            'raw float32 faces, raw int32 face_index_map, raw float32 images, float32 grad_images, ' +
-            'raw float32 grad_faces',
-            '',
-            string.Template('''
-                /* exit if no gradient from upper layers */
-                if (grad_images == 0) return;
+        if False:
+            chainer.cuda.elementwise(
+                'raw float32 faces, raw int32 face_index_map, raw float32 images, float32 grad_images, ' +
+                'raw float32 grad_faces',
+                '',
+                string.Template('''
+                    /* exit if no gradient from upper layers */
+                    if (grad_images == 0) return;
 
-                /* compute current position & index */
-                const int nf = ${num_faces};
-                const int is = ${image_size};
-                const int is2 = is * is;                    // number of pixels
-                const int pi = i;                           // pixel index on all batches
-                const int bn = pi / (is2);                  // batch number
-                const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is]
-                const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is]
-                const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
-                const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
+                    /* compute current position & index */
+                    const int nf = ${num_faces};
+                    const int is = ${image_size};
+                    const int is2 = is * is;                    // number of pixels
+                    const int pi = i;                           // pixel index on all batches
+                    const int bn = pi / (is2);                  // batch number
+                    const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is]
+                    const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is]
+                    const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
+                    const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
 
-                const int pfn = face_index_map[pi];        // face number of current position
-                const float pp = images[pi];                // pixel intensity of current position
+                    const int pfn = face_index_map[pi];        // face number of current position
+                    const float pp = images[pi];                // pixel intensity of current position
 
-                for (int axis = 0; axis < 2; axis++) {
-                    for (int direction = -1; direction <= 1; direction += 2) {
-                        int qfn_last = pfn;
-                        for (int d_pq = 1; d_pq < is; d_pq++) {
-                            int qxi, qyi;
-                            float qx, qy;
-                            if (axis == 0) {
-                                qxi = pxi + direction * d_pq;
-                                qyi = pyi;
-                                qx = (1 - 1. / is) * ((2. / (is - 1)) * qxi - 1);
-                                qy = py;
-                                if (qxi < 0 || is <= qxi) break;
-                            } else {
-                                qxi = pxi;
-                                qyi = pyi + direction * d_pq;
-                                qx = px;
-                                qy = (1 - 1. / is) * ((2. / (is - 1)) * qyi - 1);
-                                if (qyi < 0 || is <= qyi) break;
-                            }
-
-                            const int qi = bn * is2 + qyi * is + qxi;
-                            const float qp = images[qi];
-                            const float diff = qp - pp;
-                            const int qfn = face_index_map[qi];
-
-                            if (diff == 0) continue;                    // continue if same pixel value
-                            if (0 <= diff * grad_images) continue;      // continue if wrong gradient
-                            if (qfn == qfn_last) continue;              // continue if p & q are on same face
-
-                            /* adjacent point to check edge */
-                            int rxi, ryi;
-                            float rx, ry;
-                            if (axis == 0) {
-                                rxi = qxi - direction;
-                                ryi = pyi;
-                                rx = (1 - 1. / is) * ((2. / (is - 1)) * rxi - 1);
-                                ry = py;
-                            } else {
-                                rxi = pxi;
-                                ryi = qyi - direction;
-                                rx = px;
-                                ry = (1 - 1. / is) * ((2. / (is - 1)) * ryi - 1);
-                            }
-
-                            for (int mode = 0; mode < 2; mode++) {
-                                float* face;
-                                float* grad_face;
-                                if (mode == 0) {
-                                    if (qfn < 0) continue;
-                                    face = &faces[(bn * nf + qfn) * 3 * 3];
-                                    grad_face = &grad_faces[(bn * nf + qfn) * 3 * 3];
-                                } else if (mode == 1) {
-                                    if (qfn_last != pfn) continue;
-                                    if (pfn < 0) continue;
-                                    face = &faces[(bn * nf + pfn) * 3 * 3];
-                                    grad_face = &grad_faces[(bn * nf + pfn) * 3 * 3];
+                    for (int axis = 0; axis < 2; axis++) {
+                        for (int direction = -1; direction <= 1; direction += 2) {
+                            int qfn_last = pfn;
+                            for (int d_pq = 1; d_pq < is; d_pq++) {
+                                int qxi, qyi;
+                                float qx, qy;
+                                if (axis == 0) {
+                                    qxi = pxi + direction * d_pq;
+                                    qyi = pyi;
+                                    qx = (1 - 1. / is) * ((2. / (is - 1)) * qxi - 1);
+                                    qy = py;
+                                    if (qxi < 0 || is <= qxi) break;
+                                } else {
+                                    qxi = pxi;
+                                    qyi = pyi + direction * d_pq;
+                                    qx = px;
+                                    qy = (1 - 1. / is) * ((2. / (is - 1)) * qyi - 1);
+                                    if (qyi < 0 || is <= qyi) break;
                                 }
 
-                                /* for each edge */
-                                for (int vi0 = 0; vi0 < 3; vi0++) {
-                                    /* get vertices */
-                                    int vi1 = (vi0 + 1) % 3;
-                                    float* v0 = &face[vi0 * 3];
-                                    float* v1 = &face[vi1 * 3];
+                                const int qi = bn * is2 + qyi * is + qxi;
+                                const float qp = images[qi];
+                                const float diff = qp - pp;
+                                const int qfn = face_index_map[qi];
 
-                                    /* get cross point */
-                                    float sx, sy;
-                                    if (axis == 0) {
-                                        sx = (py - v0[1]) * (v1[0] - v0[0]) / (v1[1] - v0[1]) + v0[0];
-                                        sy = py;
-                                    } else {
-                                        sx = px;
-                                        sy = (px - v0[0]) * (v1[1] - v0[1]) / (v1[0] - v0[0]) + v0[1];
-                                    }
+                                if (diff == 0) continue;                    // continue if same pixel value
+                                if (0 <= diff * grad_images) continue;      // continue if wrong gradient
+                                if (qfn == qfn_last) continue;              // continue if p & q are on same face
 
-                                    /* continue if not cross edge */
-                                    if ((rx < sx) != (sx < qx)) continue;
-                                    if ((ry < sy) != (sy < qy)) continue;
-                                    if ((v0[1] < sy) != (sy < v1[1])) continue;
-                                    if ((v0[0] < sx) != (sx < v1[0])) continue;
-
-                                    /* signed distance (positive if pi < qi) */
-                                    float dist_v0, dist_v1;
-                                    if (axis == 0) {
-                                        dist_v0 = (px - sx) * (v1[1] - v0[1]) / (v1[1] - py);
-                                        dist_v1 = (px - sx) * (v0[1] - v1[1]) / (v0[1] - py);
-                                    } else {
-                                        dist_v0 = (py - sy) * (v1[0] - v0[0]) / (v1[0] - px);
-                                        dist_v1 = (py - sy) * (v0[0] - v1[0]) / (v0[0] - px);
-                                    }
-
-                                    /* add small epsilon */
-                                    dist_v0 = (0 < dist_v0) ? dist_v0 + ${eps} : dist_v0 - ${eps};
-                                    dist_v1 = (0 < dist_v1) ? dist_v1 + ${eps} : dist_v1 - ${eps};
-
-                                    /* gradient */
-                                    const float g_v0 = grad_images * diff / dist_v0;
-                                    const float g_v1 = grad_images * diff / dist_v1;
-
-                                    atomicAdd(&grad_face[vi0 * 3 + axis], g_v0);
-                                    atomicAdd(&grad_face[vi1 * 3 + axis], g_v1);
+                                /* adjacent point to check edge */
+                                int rxi, ryi;
+                                float rx, ry;
+                                if (axis == 0) {
+                                    rxi = qxi - direction;
+                                    ryi = pyi;
+                                    rx = (1 - 1. / is) * ((2. / (is - 1)) * rxi - 1);
+                                    ry = py;
+                                } else {
+                                    rxi = pxi;
+                                    ryi = qyi - direction;
+                                    rx = px;
+                                    ry = (1 - 1. / is) * ((2. / (is - 1)) * ryi - 1);
                                 }
+
+                                for (int mode = 0; mode < 2; mode++) {
+                                    float* face;
+                                    float* grad_face;
+                                    if (mode == 0) {
+                                        if (qfn < 0) continue;
+                                        face = &faces[(bn * nf + qfn) * 3 * 3];
+                                        grad_face = &grad_faces[(bn * nf + qfn) * 3 * 3];
+                                    } else if (mode == 1) {
+                                        if (qfn_last != pfn) continue;
+                                        if (pfn < 0) continue;
+                                        face = &faces[(bn * nf + pfn) * 3 * 3];
+                                        grad_face = &grad_faces[(bn * nf + pfn) * 3 * 3];
+                                    }
+
+                                    /* for each edge */
+                                    for (int vi0 = 0; vi0 < 3; vi0++) {
+                                        /* get vertices */
+                                        int vi1 = (vi0 + 1) % 3;
+                                        float* v0 = &face[vi0 * 3];
+                                        float* v1 = &face[vi1 * 3];
+
+                                        /* get cross point */
+                                        float sx, sy;
+                                        if (axis == 0) {
+                                            sx = (py - v0[1]) * (v1[0] - v0[0]) / (v1[1] - v0[1]) + v0[0];
+                                            sy = py;
+                                        } else {
+                                            sx = px;
+                                            sy = (px - v0[0]) * (v1[1] - v0[1]) / (v1[0] - v0[0]) + v0[1];
+                                        }
+
+                                        /* continue if not cross edge */
+                                        if ((rx < sx) != (sx < qx)) continue;
+                                        if ((ry < sy) != (sy < qy)) continue;
+                                        if ((v0[1] < sy) != (sy < v1[1])) continue;
+                                        if ((v0[0] < sx) != (sx < v1[0])) continue;
+
+                                        /* signed distance (positive if pi < qi) */
+                                        float dist_v0, dist_v1;
+                                        if (axis == 0) {
+                                            dist_v0 = (px - sx) * (v1[1] - v0[1]) / (v1[1] - py);
+                                            dist_v1 = (px - sx) * (v0[1] - v1[1]) / (v0[1] - py);
+                                        } else {
+                                            dist_v0 = (py - sy) * (v1[0] - v0[0]) / (v1[0] - px);
+                                            dist_v1 = (py - sy) * (v0[0] - v1[0]) / (v0[0] - px);
+                                        }
+
+                                        /* add small epsilon */
+                                        dist_v0 = (0 < dist_v0) ? dist_v0 + ${eps} : dist_v0 - ${eps};
+                                        dist_v1 = (0 < dist_v1) ? dist_v1 + ${eps} : dist_v1 - ${eps};
+
+                                        /* gradient */
+                                        const float g_v0 = grad_images * diff / dist_v0;
+                                        const float g_v1 = grad_images * diff / dist_v1;
+
+                                        atomicAdd(&grad_face[vi0 * 3 + axis], g_v0);
+                                        atomicAdd(&grad_face[vi1 * 3 + axis], g_v1);
+                                    }
+                                }
+                                qfn_last = qfn;
                             }
-                            qfn_last = qfn;
                         }
                     }
-                }
-            ''').substitute(
-                image_size=image_size,
-                num_faces=num_faces,
-                eps=self.eps,
-            ),
-            'function',
-        )(faces, self.face_index_map, self.images, grad_images.ravel(), grad_faces)
+                ''').substitute(
+                    image_size=image_size,
+                    num_faces=num_faces,
+                    eps=self.eps,
+                ),
+                'function',
+            )(faces, self.face_index_map, self.images, grad_images.ravel(), grad_faces)
+        else:
+            batch_size = faces.shape[0]
+            loop = xp.arange(batch_size * num_faces).astype('int32')
+            chainer.cuda.elementwise(
+                'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, raw float32 grad_images, ' +
+                'raw float32 grad_faces',
+                '',
+                string.Template('''
+                    const int bn = i / ${num_faces};
+                    const int fn = i % ${num_faces};
+                    const int is = ${image_size};
+                    const float* face = &faces[i * 9];
+                    float grad_face[9];
+                    for (int k = 0; k < 9; k++) grad_face[k] = 0;
+
+                    /* check back */
+                    if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
+
+                    for (int edge_num = 0; edge_num < 3; edge_num++) {
+                        int p0_i, p1_i, p2_i;
+                        float p0_xi, p0_yi, p1_xi, p1_yi, p2_xi, p2_yi;
+                        p0_i = edge_num % 3;
+                        p1_i = (edge_num + 1) % 3;
+                        p2_i = (edge_num + 2) % 3;
+                        p0_xi = (face[3 * p0_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                        p0_yi = (face[3 * p0_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                        p1_xi = (face[3 * p1_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                        p1_yi = (face[3 * p1_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                        p2_xi = (face[3 * p2_i + 0] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+                        p2_yi = (face[3 * p2_i + 1] * (1. * is) / (is - 1.) + 1) * (is - 1.) / 2.;
+
+                        for (int axis = 0; axis < 2; axis++) {
+                            float p0_d0, p0_d1, p1_d0, p1_d1, p2_d0, p2_d1;
+                            if (axis == 0) {
+                                p0_d0 = p0_xi;
+                                p0_d1 = p0_yi;
+                                p1_d0 = p1_xi;
+                                p1_d1 = p1_yi;
+                                p2_d0 = p2_xi;
+                                p2_d1 = p2_yi;
+                            } else {
+                                p0_d0 = p0_yi;
+                                p0_d1 = p0_xi;
+                                p1_d0 = p1_yi;
+                                p1_d1 = p1_xi;
+                                p2_d0 = p2_yi;
+                                p2_d1 = p2_xi;
+                            }
+
+                            /*  */
+                            int direction, d0_from, d0_to;
+                            if (axis == 0) {
+                                if (p0_d0 < p1_d0) direction = -1; else direction = 1;
+                            } else {
+                                if (p0_d0 < p1_d0) direction = 1; else direction = -1;
+                            }
+                            d0_from = max(ceil(min(p0_d0, p1_d0)), 0.);
+                            d0_to = min(max(p0_d0, p1_d0), is - 1.);
+                            for (int d0 = d0_from; d0 <= d0_to; d0++) {
+                                /* get cross point */
+                                float d1_cross;
+                                int d1_in, d1_out;
+                                d1_cross = (p1_d1 - p0_d1) / (p1_d0 - p0_d0) * (d0 - p0_d0) + p0_d1;
+                                if (0 < direction) d1_in = (int)d1_cross; else d1_in = ceil(d1_cross);
+                                d1_out = d1_in + direction;
+
+                                /* continue if cross point is not shown */
+                                if (d1_in < 0 || is <= d1_in) continue;
+                                if (d1_out < 0 || is <= d1_out) continue;
+                                float color_in, color_out;
+                                if (axis == 0) {
+                                    if (face_index_map[bn * is * is + d1_in * is + d0] != fn) continue;
+                                    color_in = images[bn * is * is + d1_in * is + d0];
+                                    color_out = images[bn * is * is + d1_out * is + d0];
+                                } else {
+                                    if (face_index_map[bn * is * is + d0 * is + d1_in] != fn) continue;
+                                    color_in = images[bn * is * is + d0 * is + d1_in];
+                                    color_out = images[bn * is * is + d0 * is + d1_out];
+                                }
+
+                                /* out */
+                                {
+                                    int d1_from, d1_to;
+                                    d1_from = d1_out;
+                                    if (0 < direction) d1_to = is - 1; else d1_to = 0;
+                                    for (int d1 = min(d1_from, d1_to); d1 <= max(d1_from, d1_to); d1++) {
+                                        float diff, grad;
+                                        if (axis == 0) {
+                                            diff = images[bn * is * is + d1 * is + d0] - color_in;
+                                            grad = grad_images[bn * is * is + d1 * is + d0];
+                                        } else {
+                                            diff = images[bn * is * is + d0 * is + d1] - color_in;
+                                            grad = grad_images[bn * is * is + d0 * is + d1];
+                                        }
+                                        if (diff * grad <= 0) continue;
+                                        float m;
+                                        m = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
+                                        m = (0 < m) ? m + ${eps} : m - ${eps};
+                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / m;
+                                        m = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
+                                        m = (0 < m) ? m + ${eps} : m - ${eps};
+                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / m;
+                                    }
+                                }
+
+                                /* in */
+                                {
+                                    int d1_from, d1_to;
+                                    d1_from = d1_in;
+                                    if ((d0 - p0_d0) * (d0 - p2_d0) < 0) {
+                                        float d0_cross_p0p2 = (p2_d1 - p0_d1) / (p2_d0 - p0_d0) * (d0 - p0_d0) + p0_d1;
+                                        if (0 < direction) d1_to = ceil(d0_cross_p0p2); else d1_to = (int)d0_cross_p0p2;
+                                    } else {
+                                        float d0_cross_p1p2 = (p1_d1 - p2_d1) / (p1_d0 - p2_d0) * (d0 - p2_d0) + p2_d1;
+                                        if (0 < direction) d1_to = ceil(d0_cross_p1p2); else d1_to = (int)d0_cross_p1p2;
+                                    }
+                                    d1_from = min(max(d1_from, 0), is - 1);
+                                    d1_to = min(max(d1_to, 0), is - 1);
+                                    for (int d1 = min(d1_from, d1_to); d1 <= max(d1_from, d1_to); d1++) {
+                                        float diff, grad;
+                                        if (axis == 0) {
+                                            if (face_index_map[bn * is * is + d1 * is + d0] != fn) continue;
+                                            diff = images[bn * is * is + d1 * is + d0] - color_out;
+                                            grad = grad_images[bn * is * is + d1 * is + d0];
+                                        } else {
+                                            if (face_index_map[bn * is * is + d0 * is + d1] != fn) continue;
+                                            diff = images[bn * is * is + d0 * is + d1] - color_out;
+                                            grad = grad_images[bn * is * is + d0 * is + d1];
+                                        }
+                                        if (diff * grad <= 0) continue;
+                                        float m;
+                                        m = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
+                                        m = (0 < m) ? m + ${eps} : m - ${eps};
+                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / m;
+                                        m = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
+                                        m = (0 < m) ? m + ${eps} : m - ${eps};
+                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / m;
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                    for (int k = 0; k < 9; k++) grad_faces[i * 9 + k] = grad_face[k];
+                ''').substitute(
+                    image_size=image_size,
+                    num_faces=num_faces,
+                    eps=self.eps,
+                ),
+                'function',
+            )(loop, faces, self.face_index_map, self.images, grad_images.ravel(), grad_faces)
 
         return grad_faces,
 

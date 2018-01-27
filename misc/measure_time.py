@@ -45,18 +45,14 @@ def run():
     # draw object
     times_forward = []
     times_backward = []
-    loop = tqdm.tqdm(range(0, 360, 4))
+    loop = tqdm.tqdm(range(0, 360, 15))
     for num, azimuth in enumerate(loop):
         loop.set_description('Drawing')
         renderer.eye = neural_renderer.get_points_from_angles(camera_distance, elevation, azimuth)
         time_start = time.time()
-        # images = renderer.render(vertices, faces, textures)  # [batch_size, RGB, image_size, image_size]
         images = renderer.render_silhouettes(vertices, faces)  # [batch_size, image_size, image_size]
         _ = images.data[0, 0, 0].get()
         time_end = time.time()
-        # import pylab
-        # pylab.imshow(images.data[0].get())
-        # pylab.show()
         times_forward.append(time_end - time_start)
         loss = chainer.functions.sum(images)
         _ = loss.data.get()
@@ -65,9 +61,30 @@ def run():
         time_end = time.time()
         times_backward.append(time_end - time_start)
 
-    print 'forward time: %.3f ms' % (np.sum(times_forward[1:]) / len(times_forward[1:]))
-    print 'backward time: %.3f ms' % (np.sum(times_backward[1:]) / len(times_backward[1:]))
+    print 'silhouette forward time: %.3f ms' % (np.sum(times_forward[1:]) / len(times_forward[1:]))
+    print 'silhouette backward time: %.3f ms' % (np.sum(times_backward[1:]) / len(times_backward[1:]))
 
+    # draw object
+    times_forward = []
+    times_backward = []
+    loop = tqdm.tqdm(range(0, 360, 15))
+    for num, azimuth in enumerate(loop):
+        loop.set_description('Drawing')
+        renderer.eye = neural_renderer.get_points_from_angles(camera_distance, elevation, azimuth)
+        time_start = time.time()
+        images = renderer.render(vertices, faces, textures)  # [batch_size, RGB, image_size, image_size]
+        _ = images.data[0, 0, 0, 0].get()
+        time_end = time.time()
+        times_forward.append(time_end - time_start)
+        loss = chainer.functions.sum(images)
+        _ = loss.data.get()
+        time_start = time.time()
+        loss.backward()
+        time_end = time.time()
+        times_backward.append(time_end - time_start)
+
+    print 'texture forward time: %.3f ms' % (np.sum(times_forward[1:]) / len(times_forward[1:]))
+    print 'texture backward time: %.3f ms' % (np.sum(times_backward[1:]) / len(times_backward[1:]))
 
 if __name__ == '__main__':
     run()
