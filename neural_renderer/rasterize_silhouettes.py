@@ -1,6 +1,8 @@
+import string
+
 import chainer
 import chainer.functions as cf
-import string
+
 
 class RasterizeSilhouette(chainer.Function):
     def __init__(self, image_size, near, far, eps):
@@ -133,13 +135,20 @@ class RasterizeSilhouette(chainer.Function):
                         if (zp <= ${near} || ${far} <= zp) continue;
 
                         /* lock and update */
-                        while (atomicAdd(&lock[index], 0) != 0) {}
-                        if (zp < z_buffer[index]) {
-                            atomicExch(&images[index], 1);
-                            atomicExch(&face_index_map[index], fn);
-                            atomicExch(&z_buffer[index], zp);
-                        }
-                        atomicExch(&lock[index], 0);
+                        bool locked = false;
+                        do {
+                            if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
+                                if (zp < z_buffer[index]) {
+                                    atomicExch(&images[index], 1);
+                                    atomicExch(&face_index_map[index], fn);
+                                    atomicExch(&z_buffer[index], zp);
+                                }
+                            }
+                            if (locked)
+                            {
+                                atomicExch(&lock[index], 0);
+                            }
+                        } while (!locked);
                     }
                 }
             ''').substitute(
@@ -172,8 +181,7 @@ class RasterizeSilhouette(chainer.Function):
                 const int fn = i % ${num_faces};
                 const int is = ${image_size};
                 const float* face = &faces[i * 9];
-                float grad_face[9];
-                for (int k = 0; k < 9; k++) grad_face[k] = 0;
+                float grad_face[9] = {};
 
                 /* check backside */
                 if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
@@ -193,6 +201,7 @@ class RasterizeSilhouette(chainer.Function):
 
                     /* for dy, dx */
                     for (int axis = 0; axis < 2; axis++) {
+                        /* */
                         float p0_d0, p0_d1, p1_d0, p1_d1, p2_d0, p2_d1;
                         if (axis == 0) {
                             p0_d0 = p0_xi;
@@ -210,15 +219,16 @@ class RasterizeSilhouette(chainer.Function):
                             p2_d1 = p2_xi;
                         }
 
-                        /*  */
-                        int direction, d0_from, d0_to;
+                        /* set direction */
+                        int direction;
                         if (axis == 0) {
                             if (p0_d0 < p1_d0) direction = -1; else direction = 1;
                         } else {
                             if (p0_d0 < p1_d0) direction = 1; else direction = -1;
                         }
 
-                        /* for along edge */
+                        /* along edge */
+                        int d0_from, d0_to;
                         d0_from = max(ceil(min(p0_d0, p1_d0)), 0.);
                         d0_to = min(max(p0_d0, p1_d0), is - 1.);
                         for (int d0 = d0_from; d0 <= d0_to; d0++) {
@@ -252,14 +262,27 @@ class RasterizeSilhouette(chainer.Function):
                                 if (0 < direction) d1_limit = is - 1; else d1_limit = 0;
                                 int d1_from = max(min(d1_out, d1_limit), 0);
                                 int d1_to = min(max(d1_out, d1_limit), is - 1);
+                                float* images_p;
+                                float* grad_images_p;
+                                if (axis == 0) {
+                                    images_p = &images[bn * is * is + d1_from * is + d0] - is;
+                                    grad_images_p = &grad_images[bn * is * is + d1_from * is + d0] - is;
+                                } else {
+                                    images_p = &images[bn * is * is + d0 * is + d1_from] - 1;
+                                    grad_images_p = &grad_images[bn * is * is + d0 * is + d1_from] - 1;
+                                }
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
                                     float diff, grad;
                                     if (axis == 0) {
-                                        diff = images[bn * is * is + d1 * is + d0] - color_in;
-                                        grad = grad_images[bn * is * is + d1 * is + d0];
+                                        images_p += is;
+                                        grad_images_p += is;
+                                        diff = *images_p - color_in;
+                                        grad = *grad_images_p;
                                     } else {
-                                        diff = images[bn * is * is + d0 * is + d1] - color_in;
-                                        grad = grad_images[bn * is * is + d0 * is + d1];
+                                        images_p += 1;
+                                        grad_images_p += 1;
+                                        diff = *images_p - color_in;
+                                        grad = *grad_images_p;
                                     }
                                     if (diff * grad <= 0) continue;
                                     if (p1_d0 != d0) {
@@ -287,16 +310,34 @@ class RasterizeSilhouette(chainer.Function):
                                 if (0 < direction) d1_limit = ceil(d0_cross2); else d1_limit = floor(d0_cross2);
                                 int d1_from = max(min(d1_in, d1_limit), 0);
                                 int d1_to = min(max(d1_in, d1_limit), is - 1);
+                                int* face_index_map_p;
+                                float* images_p;
+                                float* grad_images_p;
+                                if (axis == 0) {
+                                    face_index_map_p = &face_index_map[bn * is * is + d1_from * is + d0] - is;
+                                    images_p = &images[bn * is * is + d1_from * is + d0] - is;
+                                    grad_images_p = &grad_images[bn * is * is + d1_from * is + d0] - is;
+                                } else {
+                                    face_index_map_p = &face_index_map[bn * is * is + d0 * is + d1_from] - 1;
+                                    images_p = &images[bn * is * is + d0 * is + d1_from] - 1;
+                                    grad_images_p = &grad_images[bn * is * is + d0 * is + d1_from] - 1;
+                                }
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
                                     float diff, grad;
                                     if (axis == 0) {
-                                        if (face_index_map[bn * is * is + d1 * is + d0] != fn) continue;
-                                        diff = images[bn * is * is + d1 * is + d0] - color_out;
-                                        grad = grad_images[bn * is * is + d1 * is + d0];
+                                        face_index_map_p += is;
+                                        images_p += is;
+                                        grad_images_p += is;
+                                        if (*face_index_map_p != fn) continue;
+                                        diff = *images_p - color_out;
+                                        grad = *grad_images_p;
                                     } else {
-                                        if (face_index_map[bn * is * is + d0 * is + d1] != fn) continue;
-                                        diff = images[bn * is * is + d0 * is + d1] - color_out;
-                                        grad = grad_images[bn * is * is + d0 * is + d1];
+                                        face_index_map_p += 1;
+                                        images_p += 1;
+                                        grad_images_p += 1;
+                                        if (*face_index_map_p != fn) continue;
+                                        diff = *images_p - color_out;
+                                        grad = *grad_images_p;
                                     }
                                     if (diff * grad <= 0) continue;
                                     if (p1_d0 != d0) {

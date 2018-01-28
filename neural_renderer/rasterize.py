@@ -56,104 +56,231 @@ class Rasterize(chainer.Function):
         self.face_index_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_), dtype='int32')) - 1
         self.weight_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_, 3), dtype='float32'))
         self.face_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_, 3, 3), dtype='float32'))
-        self.z_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_), dtype='float32'))
+        self.z_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_), dtype='float32')) + self.far
         self.sampling_weight_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_, 8), 'float32'))
         self.sampling_index_map = xp.ascontiguousarray(xp.zeros((bs, is_, is_, 8), 'int32'))
         self.images = xp.ascontiguousarray(xp.zeros((bs, is_, is_, 3), dtype='float32'))
 
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
-        chainer.cuda.elementwise(
-            'raw float32 faces',
-            'int32 face_index_map, raw float32 weight_map, raw float32 face_map, float32 z_map',
-            string.Template('''
-                /* current position & index */
-                const int nf = ${num_faces};                // short name
-                const int is = ${image_size};               // short name
-                const int is2 = is * is;                    // number of pixels
-                const int pi = i;                           // pixel index on all batches
-                const int bn = pi / (is2);                  // batch number
-                const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is - 1]
-                const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is - 1]
-                const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
-                const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
+        if True:
+            chainer.cuda.elementwise(
+                'raw float32 faces',
+                'int32 face_index_map, raw float32 weight_map, raw float32 face_map, float32 z_map',
+                string.Template('''
+                    /* current position & index */
+                    const int nf = ${num_faces};                // short name
+                    const int is = ${image_size};               // short name
+                    const int is2 = is * is;                    // number of pixels
+                    const int pi = i;                           // pixel index on all batches
+                    const int bn = pi / (is2);                  // batch number
+                    const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is - 1]
+                    const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is - 1]
+                    const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
+                    const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
 
-                /* for each face */
-                float* face;            // current face
-                float z_min = ${far};   // z of nearest face
-                int z_min_fn = -1;      // face number of nearest face
-                float z_min_weight[3];  //
-                float z_min_face[9];    //
-                for (int fn = 0; fn < nf; fn++) {
-                    /* go to next face */
-                    if (fn == 0) {
-                        face = &faces[(bn * nf) * 3 * 3];
+                    /* for each face */
+                    float* face;            // current face
+                    float z_min = ${far};   // z of nearest face
+                    int z_min_fn = -1;      // face number of nearest face
+                    float z_min_weight[3];  //
+                    float z_min_face[9];    //
+                    for (int fn = 0; fn < nf; fn++) {
+                        /* go to next face */
+                        if (fn == 0) {
+                            face = &faces[(bn * nf) * 3 * 3];
+                        } else {
+                            face += 3 * 3;
+                        }
+
+                        /* get vertex of current face */
+                        const float x[3] = {face[0], face[3], face[6]};
+                        const float y[3] = {face[1], face[4], face[7]};
+                        const float z[3] = {face[2], face[5], face[8]};
+
+                        /* check too close & too far */
+                        if (z[0] <= 0 || z[1] <= 0 || z[2] <= 0) continue;
+                        if (z_min < z[0] && z_min < z[1] && z_min < z[2]) continue;
+
+                        /* check [py, px] is inside the face */
+                        if (((py - y[0]) * (x[1] - x[0]) < (px - x[0]) * (y[1] - y[0])) ||
+                            ((py - y[1]) * (x[2] - x[1]) < (px - x[1]) * (y[2] - y[1])) ||
+                            ((py - y[2]) * (x[0] - x[2]) < (px - x[2]) * (y[0] - y[2]))) continue;
+
+                        /* compute f_inv */
+                        float f_inv[9] = {
+                            y[1] - y[2], x[2] - x[1], x[1] * y[2] - x[2] * y[1],
+                            y[2] - y[0], x[0] - x[2], x[2] * y[0] - x[0] * y[2],
+                            y[0] - y[1], x[1] - x[0], x[0] * y[1] - x[1] * y[0]};
+                        float f_inv_denominator = x[2] * (y[0] - y[1]) + x[0] * (y[1] - y[2]) + x[1] * (y[2] - y[0]);
+                        for (int k = 0; k < 9; k++) f_inv[k] /= f_inv_denominator;
+
+                        /* compute w = f_inv * p */
+                        float w[3];
+                        for (int k = 0; k < 3; k++) w[k] = f_inv[3 * k + 0] * px + f_inv[3 * k + 1] * py + f_inv[3 * k + 2];
+
+                        /* sum(w) -> 1, 0 < w < 1 */
+                        float w_sum = 0;
+                        for (int k = 0; k < 3; k++) {
+                            if (w[k] < 0) w[k] = 0;
+                            if (1 < w[k]) w[k] = 1;
+                            w_sum += w[k];
+                        }
+                        for (int k = 0; k < 3; k++) w[k] /= w_sum;
+
+                        /* compute 1 / zp = sum(w / z) & check z-buffer */
+                        const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
+                        if (zp <= ${near} || ${far} <= zp) continue;
+
+                        /* check nearest */
+                        if (zp < z_min) {
+                            z_min = zp;
+                            z_min_fn = fn;
+                            memcpy(z_min_weight, w, 3 * sizeof(float));
+                            memcpy(z_min_face, face, 9 * sizeof(float));
+                        }
+                    }
+                    /* set to buffer */
+                    if (0 <= z_min_fn) {
+                        face_index_map = z_min_fn;
+                        z_map = z_min;
+                        memcpy(&weight_map[pi * 3], z_min_weight, 3 * sizeof(float));
+                        memcpy(&face_map[pi * 9], z_min_face, 9 * sizeof(float));
+                    }
+                ''').substitute(
+                    num_faces=nf,
+                    image_size=is_,
+                    near=self.near,
+                    far=self.far,
+                ),
+                'function',
+            )(faces, self.face_index_map.ravel(), self.weight_map, self.face_map, self.z_map.ravel())
+        else:
+            loop = xp.arange(bs * nf).astype('int32')
+            lock = xp.zeros(self.images.shape, 'uint64')
+            chainer.cuda.elementwise(
+                'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 weight_map, raw float32 face_map, ' +
+                'raw float32 z_map, raw uint64 lock',
+                '',
+                string.Template('''
+                    const int bn = i / ${num_faces};
+                    const int fn = i % ${num_faces};
+                    const int is = ${image_size};
+                    const float* face = &faces[i * 9];
+
+                    /* check back */
+                    if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
+
+                    /* p0, p1, p2 = leftmost, middle, rightmost points */
+                    int p0_i, p1_i, p2_i;
+                    if (face[0] < face[3]) {
+                        if (face[6] < face[0]) p0_i = 2; else p0_i = 0;
+                        if (face[3] < face[6]) p2_i = 2; else p2_i = 1;
                     } else {
-                        face += 3 * 3;
+                        if (face[6] < face[3]) p0_i = 2; else p0_i = 1;
+                        if (face[0] < face[6]) p2_i = 2; else p2_i = 0;
                     }
+                    for (int k = 0; k < 3; k++) if (p0_i != k && p2_i != k) p1_i = k;
+                    const float p0_xi = 0.5 * (face[3 * p0_i + 0] * is + is - 1);
+                    const float p0_yi = 0.5 * (face[3 * p0_i + 1] * is + is - 1);
+                    const float p1_xi = 0.5 * (face[3 * p1_i + 0] * is + is - 1);
+                    const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
+                    const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
+                    const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
+                    const float p0_zp = face[3 * p0_i + 2];
+                    const float p1_zp = face[3 * p1_i + 2];
+                    const float p2_zp = face[3 * p2_i + 2];
+                    if (p0_xi == p2_xi) return; // line, not triangle
 
-                    /* get vertex of current face */
-                    const float x[3] = {face[0], face[3], face[6]};
-                    const float y[3] = {face[1], face[4], face[7]};
-                    const float z[3] = {face[2], face[5], face[8]};
+                    /* compute face_inv */
+                    float face_inv[9] = {
+                        p1_yi - p2_yi, p2_xi - p1_xi, p1_xi * p2_yi - p2_xi * p1_yi,
+                        p2_yi - p0_yi, p0_xi - p2_xi, p2_xi * p0_yi - p0_xi * p2_yi,
+                        p0_yi - p1_yi, p1_xi - p0_xi, p0_xi * p1_yi - p1_xi * p0_yi};
+                    float face_inv_denominator = (
+                        p2_xi * (p0_yi - p1_yi) +
+                        p0_xi * (p1_yi - p2_yi) +
+                        p1_xi * (p2_yi - p0_yi));
+                    for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
 
-                    /* check too close & too far */
-                    if (z[0] <= 0 || z[1] <= 0 || z[2] <= 0) continue;
-                    if (z_min < z[0] && z_min < z[1] && z_min < z[2]) continue;
+                    /* from left to right */
+                    const int xi_min = max(ceil(p0_xi), 0.);
+                    const int xi_max = min(p2_xi, is - 1.);
+                    for (int xi = xi_min; xi <= xi_max; xi++) {
+                        /* compute yi_min and yi_max */
+                        float yi1, yi2;
+                        if (xi <= p1_xi) {
+                            if (p1_xi - p0_xi != 0) {
+                                yi1 = (p1_yi - p0_yi) / (p1_xi - p0_xi) * (xi - p0_xi) + p0_yi;
+                            } else {
+                                yi1 = p1_yi;
+                            }
+                        } else {
+                            if (p2_xi - p1_xi != 0) {
+                                yi1 = (p2_yi - p1_yi) / (p2_xi - p1_xi) * (xi - p1_xi) + p1_yi;
+                            } else {
+                                yi1 = p1_yi;
+                            }
+                        }
+                        yi2 = (p2_yi - p0_yi) / (p2_xi - p0_xi) * (xi - p0_xi) + p0_yi;
 
-                    /* check [py, px] is inside the face */
-                    if (((py - y[0]) * (x[1] - x[0]) < (px - x[0]) * (y[1] - y[0])) ||
-                        ((py - y[1]) * (x[2] - x[1]) < (px - x[1]) * (y[2] - y[1])) ||
-                        ((py - y[2]) * (x[0] - x[2]) < (px - x[2]) * (y[0] - y[2]))) continue;
+                        /* from up to bottom */
+                        int yi_min = max(0., ceil(min(yi1, yi2)));
+                        int yi_max = min(max(yi1, yi2), is - 1.);
+                        for (int yi = yi_min; yi <= yi_max; yi++) {
+                            int index = bn * is * is + yi * is + xi;
 
-                    /* compute f_inv */
-                    float f_inv[9] = {
-                        y[1] - y[2], x[2] - x[1], x[1] * y[2] - x[2] * y[1],
-                        y[2] - y[0], x[0] - x[2], x[2] * y[0] - x[0] * y[2],
-                        y[0] - y[1], x[1] - x[0], x[0] * y[1] - x[1] * y[0]};
-                    float f_inv_denominator = x[2] * (y[0] - y[1]) + x[0] * (y[1] - y[2]) + x[1] * (y[2] - y[0]);
-                    for (int k = 0; k < 9; k++) f_inv[k] /= f_inv_denominator;
+                            /* compute w = face_inv * p */
+                            float w[3];
+                            for (int k = 0; k < 3; k++) w[k] = (
+                                face_inv[3 * k + 0] * xi +
+                                face_inv[3 * k + 1] * yi +
+                                face_inv[3 * k + 2]);
 
-                    /* compute w = f_inv * p */
-                    float w[3];
-                    for (int k = 0; k < 3; k++) w[k] = f_inv[3 * k + 0] * px + f_inv[3 * k + 1] * py + f_inv[3 * k + 2];
+                            /* sum(w) -> 1, 0 < w < 1 */
+                            float w_sum = 0;
+                            for (int k = 0; k < 3; k++) {
+                                if (w[k] < 0) w[k] = 0;
+                                if (1 < w[k]) w[k] = 1;
+                                w_sum += w[k];
+                            }
+                            for (int k = 0; k < 3; k++) w[k] /= w_sum;
 
-                    /* sum(w) -> 1, 0 < w < 1 */
-                    float w_sum = 0;
-                    for (int k = 0; k < 3; k++) {
-                        if (w[k] < 0) w[k] = 0;
-                        if (1 < w[k]) w[k] = 1;
-                        w_sum += w[k];
+                            /* compute 1 / zp = sum(w / z) */
+                            const float zp = 1. / (w[0] / p0_zp + w[1] / p1_zp + w[2] / p2_zp);
+                            if (zp <= ${near} || ${far} <= zp) continue;
+
+                            /* lock and update */
+                            bool locked = false;
+                            do {
+                                if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
+                                    if (zp < z_map[index]) {
+                                        atomicExch(&face_index_map[index], fn);
+                                        atomicExch(&z_map[index], zp);
+                                        atomicExch(&weight_map[3 * index + p0_i], w[0]);
+                                        atomicExch(&weight_map[3 * index + p1_i], w[1]);
+                                        atomicExch(&weight_map[3 * index + p2_i], w[2]);
+                                        for (int k = 0; k < 9; k++) atomicExch(&face_index_map[9 * index + k], face[k]);
+                                    }
+                                }
+                                if (locked)
+                                {
+                                    atomicExch(&lock[index], 0);
+                                }
+                            } while (!locked);
+                        }
                     }
-                    for (int k = 0; k < 3; k++) w[k] /= w_sum;
-
-                    /* compute 1 / zp = sum(w / z) & check z-buffer */
-                    const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
-                    if (zp <= ${near} || ${far} <= zp) continue;
-
-                    /* check nearest */
-                    if (zp < z_min) {
-                        z_min = zp;
-                        z_min_fn = fn;
-                        memcpy(z_min_weight, w, 3 * sizeof(float));
-                        memcpy(z_min_face, face, 9 * sizeof(float));
-                    }
-                }
-                /* set to buffer */
-                if (0 <= z_min_fn) {
-                    face_index_map = z_min_fn;
-                    z_map = z_min;
-                    memcpy(&weight_map[pi * 3], z_min_weight, 3 * sizeof(float));
-                    memcpy(&face_map[pi * 9], z_min_face, 9 * sizeof(float));
-                }
-            ''').substitute(
-                num_faces=nf,
-                image_size=is_,
-                near=self.near,
-                far=self.far,
-            ),
-            'function',
-        )(faces, self.face_index_map.ravel(), self.weight_map, self.face_map, self.z_map.ravel())
+                ''').substitute(
+                    num_faces=nf,
+                    image_size=is_,
+                    near=self.near,
+                    far=self.far,
+                ),
+                'function',
+            )(
+                loop, faces.ravel(), self.face_index_map.ravel(), self.weight_map.ravel(), self.face_map, self.z_map.ravel(),
+                lock,
+            )
 
         # texture sampling
         background_colors = xp.array(self.background_color, 'float32')
