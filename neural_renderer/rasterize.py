@@ -397,7 +397,7 @@ class Rasterize(chainer.Function):
                                     grad_images_p = &grad_images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
                                 }
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
-                                    float diff = 0, grad = 0;
+                                    float diff_grad = 0;
                                     if (axis == 0) {
                                         images_p += 3 * is;
                                         grad_images_p += 3 * is;
@@ -406,19 +406,18 @@ class Rasterize(chainer.Function):
                                         grad_images_p += 3;
                                     }
                                     for (int k = 0; k < 3; k++) {
-                                        diff += (images_p[k] - color_in[k]);
-                                        grad += grad_images_p[k];
+                                        diff_grad += (images_p[k] - color_in[k]) * grad_images_p[k];
                                     }
-                                    if (diff * grad <= 0) continue;
+                                    if (diff_grad <= 0) continue;
                                     if (p1_d0 != d0) {
                                         float dist = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
                                         dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
-                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                        grad_face[p0_i * 3 + (1 - axis)] -= diff_grad / dist;
                                     }
                                     if (p0_d0 != d0) {
                                         float dist = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
                                         dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
-                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                        grad_face[p1_i * 3 + (1 - axis)] -= diff_grad / dist;
                                     }
                                 }
                             }
@@ -448,7 +447,7 @@ class Rasterize(chainer.Function):
                                     grad_images_p = &grad_images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
                                 }
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
-                                    float diff = 0, grad = 0;
+                                    float diff_grad = 0;
                                     if (axis == 0) {
                                         face_index_map_p += is;
                                         images_p += 3 * is;
@@ -461,19 +460,18 @@ class Rasterize(chainer.Function):
                                         if (*face_index_map_p != fn) continue;
                                     }
                                     for (int k = 0; k < 3; k++) {
-                                        diff += images_p[k] - color_out[k];
-                                        grad += grad_images_p[k];
+                                        diff_grad += (images_p[k] - color_out[k]) * grad_images_p[k];
                                     }
-                                    if (diff * grad <= 0) continue;
+                                    if (diff_grad <= 0) continue;
                                     if (p1_d0 != d0) {
                                         float dist = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
                                         dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
-                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                        grad_face[p0_i * 3 + (1 - axis)] -= diff_grad / dist;
                                     }
                                     if (p0_d0 != d0) {
                                         float dist = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
                                         dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
-                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                        grad_face[p1_i * 3 + (1 - axis)] -= diff_grad / dist;
                                     }
                                 }
                             }
