@@ -32,7 +32,7 @@ class TestRasterize(unittest.TestCase):
 
         scipy.misc.imsave('./tests/data/test_rasterize1.png', image)
 
-    def tsest_case2(self):
+    def test_case2(self):
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -52,7 +52,7 @@ class TestRasterize(unittest.TestCase):
 
         scipy.misc.imsave('./tests/data/test_rasterize2.png', image)
 
-    def tesst_forward_case1(self):
+    def test_forward_case1(self):
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -80,7 +80,7 @@ class TestRasterize(unittest.TestCase):
 
         chainer.testing.assert_allclose(ref, image)
 
-    def tsest_backward_case1(self):
+    def test_backward_case1(self):
         vertices = [
             [0.8, 0.8, 1.],
             [0.0, -0.5, 1.],
@@ -117,10 +117,9 @@ class TestRasterize(unittest.TestCase):
                 image[pyi, pxi] = [1, 0, 0]
                 ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case1_v%d_%s.png' % (i, axis))
                 ref = ref.astype('float32') / 255
-                scipy.misc.imsave('../tmp/rasterize_silhouettes_case1_v%d_%s.png' % (i, axis), image)
-                # chainer.testing.assert_allclose(ref, image)
+                chainer.testing.assert_allclose(ref, image)
 
-    def tesst_backward_case2(self):
+    def test_backward_case2(self):
         vertices = [
             [0.8, 0.8, 1.],
             [-0.5, -0.8, 1.],
@@ -138,7 +137,9 @@ class TestRasterize(unittest.TestCase):
 
         vertices = chainer.Variable(cp.array(vertices, 'float32'))
         faces = cp.array(faces, 'int32')
-        images = renderer.render_silhouettes(vertices[None, :, :], faces[None, :, :])
+        textures = cp.ones((1, faces.shape[0], 4, 4, 4, 3), 'float32')
+        images = renderer.render(vertices[None, :, :], faces[None, :, :], textures)
+        images = cf.mean(images, axis=1)
         loss = cf.sum(cf.absolute(images[:, pyi, pxi]))
         loss.backward()
 

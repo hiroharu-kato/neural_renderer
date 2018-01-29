@@ -63,61 +63,86 @@ class Rasterize(chainer.Function):
 
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
-        if True:
-            chainer.cuda.elementwise(
-                'raw float32 faces',
-                'int32 face_index_map, raw float32 weight_map, raw float32 face_map, float32 z_map',
-                string.Template('''
-                    /* current position & index */
-                    const int nf = ${num_faces};                // short name
-                    const int is = ${image_size};               // short name
-                    const int is2 = is * is;                    // number of pixels
-                    const int pi = i;                           // pixel index on all batches
-                    const int bn = pi / (is2);                  // batch number
-                    const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is - 1]
-                    const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is - 1]
-                    const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
-                    const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
+        loop = xp.arange(bs * nf).astype('int32')
+        lock = xp.zeros(self.images.shape, 'uint64')
+        chainer.cuda.elementwise(
+            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 weight_map, raw float32 face_map, ' +
+            'raw float32 z_map, raw uint64 lock',
+            '',
+            string.Template('''
+                const int bn = i / ${num_faces};
+                const int fn = i % ${num_faces};
+                const int is = ${image_size};
+                const float* face = &faces[i * 9];
 
-                    /* for each face */
-                    float* face;            // current face
-                    float z_min = ${far};   // z of nearest face
-                    int z_min_fn = -1;      // face number of nearest face
-                    float z_min_weight[3];  //
-                    float z_min_face[9];    //
-                    for (int fn = 0; fn < nf; fn++) {
-                        /* go to next face */
-                        if (fn == 0) {
-                            face = &faces[(bn * nf) * 3 * 3];
+                /* check back */
+                if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
+
+                /* p0, p1, p2 = leftmost, middle, rightmost points */
+                int p0_i, p1_i, p2_i;
+                if (face[0] < face[3]) {
+                    if (face[6] < face[0]) p0_i = 2; else p0_i = 0;
+                    if (face[3] < face[6]) p2_i = 2; else p2_i = 1;
+                } else {
+                    if (face[6] < face[3]) p0_i = 2; else p0_i = 1;
+                    if (face[0] < face[6]) p2_i = 2; else p2_i = 0;
+                }
+                for (int k = 0; k < 3; k++) if (p0_i != k && p2_i != k) p1_i = k;
+                const float p0_xi = 0.5 * (face[3 * p0_i + 0] * is + is - 1);
+                const float p0_yi = 0.5 * (face[3 * p0_i + 1] * is + is - 1);
+                const float p1_xi = 0.5 * (face[3 * p1_i + 0] * is + is - 1);
+                const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
+                const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
+                const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
+                const float p0_zp = face[3 * p0_i + 2];
+                const float p1_zp = face[3 * p1_i + 2];
+                const float p2_zp = face[3 * p2_i + 2];
+                if (p0_xi == p2_xi) return; // line, not triangle
+
+                /* compute face_inv */
+                float face_inv[9] = {
+                    p1_yi - p2_yi, p2_xi - p1_xi, p1_xi * p2_yi - p2_xi * p1_yi,
+                    p2_yi - p0_yi, p0_xi - p2_xi, p2_xi * p0_yi - p0_xi * p2_yi,
+                    p0_yi - p1_yi, p1_xi - p0_xi, p0_xi * p1_yi - p1_xi * p0_yi};
+                float face_inv_denominator = (
+                    p2_xi * (p0_yi - p1_yi) +
+                    p0_xi * (p1_yi - p2_yi) +
+                    p1_xi * (p2_yi - p0_yi));
+                for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
+
+                /* from left to right */
+                const int xi_min = max(ceil(p0_xi), 0.);
+                const int xi_max = min(p2_xi, is - 1.);
+                for (int xi = xi_min; xi <= xi_max; xi++) {
+                    /* compute yi_min and yi_max */
+                    float yi1, yi2;
+                    if (xi <= p1_xi) {
+                        if (p1_xi - p0_xi != 0) {
+                            yi1 = (p1_yi - p0_yi) / (p1_xi - p0_xi) * (xi - p0_xi) + p0_yi;
                         } else {
-                            face += 3 * 3;
+                            yi1 = p1_yi;
                         }
+                    } else {
+                        if (p2_xi - p1_xi != 0) {
+                            yi1 = (p2_yi - p1_yi) / (p2_xi - p1_xi) * (xi - p1_xi) + p1_yi;
+                        } else {
+                            yi1 = p1_yi;
+                        }
+                    }
+                    yi2 = (p2_yi - p0_yi) / (p2_xi - p0_xi) * (xi - p0_xi) + p0_yi;
 
-                        /* get vertex of current face */
-                        const float x[3] = {face[0], face[3], face[6]};
-                        const float y[3] = {face[1], face[4], face[7]};
-                        const float z[3] = {face[2], face[5], face[8]};
+                    /* from up to bottom */
+                    int yi_min = max(0., ceil(min(yi1, yi2)));
+                    int yi_max = min(max(yi1, yi2), is - 1.);
+                    for (int yi = yi_min; yi <= yi_max; yi++) {
+                        int index = bn * is * is + yi * is + xi;
 
-                        /* check too close & too far */
-                        if (z[0] <= 0 || z[1] <= 0 || z[2] <= 0) continue;
-                        if (z_min < z[0] && z_min < z[1] && z_min < z[2]) continue;
-
-                        /* check [py, px] is inside the face */
-                        if (((py - y[0]) * (x[1] - x[0]) < (px - x[0]) * (y[1] - y[0])) ||
-                            ((py - y[1]) * (x[2] - x[1]) < (px - x[1]) * (y[2] - y[1])) ||
-                            ((py - y[2]) * (x[0] - x[2]) < (px - x[2]) * (y[0] - y[2]))) continue;
-
-                        /* compute f_inv */
-                        float f_inv[9] = {
-                            y[1] - y[2], x[2] - x[1], x[1] * y[2] - x[2] * y[1],
-                            y[2] - y[0], x[0] - x[2], x[2] * y[0] - x[0] * y[2],
-                            y[0] - y[1], x[1] - x[0], x[0] * y[1] - x[1] * y[0]};
-                        float f_inv_denominator = x[2] * (y[0] - y[1]) + x[0] * (y[1] - y[2]) + x[1] * (y[2] - y[0]);
-                        for (int k = 0; k < 9; k++) f_inv[k] /= f_inv_denominator;
-
-                        /* compute w = f_inv * p */
+                        /* compute w = face_inv * p */
                         float w[3];
-                        for (int k = 0; k < 3; k++) w[k] = f_inv[3 * k + 0] * px + f_inv[3 * k + 1] * py + f_inv[3 * k + 2];
+                        for (int k = 0; k < 3; k++) w[k] = (
+                            face_inv[3 * k + 0] * xi +
+                            face_inv[3 * k + 1] * yi +
+                            face_inv[3 * k + 2]);
 
                         /* sum(w) -> 1, 0 < w < 1 */
                         float w_sum = 0;
@@ -128,159 +153,38 @@ class Rasterize(chainer.Function):
                         }
                         for (int k = 0; k < 3; k++) w[k] /= w_sum;
 
-                        /* compute 1 / zp = sum(w / z) & check z-buffer */
-                        const float zp = 1. / (w[0] / z[0] + w[1] / z[1] + w[2] / z[2]);
+                        /* compute 1 / zp = sum(w / z) */
+                        const float zp = 1. / (w[0] / p0_zp + w[1] / p1_zp + w[2] / p2_zp);
                         if (zp <= ${near} || ${far} <= zp) continue;
 
-                        /* check nearest */
-                        if (zp < z_min) {
-                            z_min = zp;
-                            z_min_fn = fn;
-                            memcpy(z_min_weight, w, 3 * sizeof(float));
-                            memcpy(z_min_face, face, 9 * sizeof(float));
-                        }
-                    }
-                    /* set to buffer */
-                    if (0 <= z_min_fn) {
-                        face_index_map = z_min_fn;
-                        z_map = z_min;
-                        memcpy(&weight_map[pi * 3], z_min_weight, 3 * sizeof(float));
-                        memcpy(&face_map[pi * 9], z_min_face, 9 * sizeof(float));
-                    }
-                ''').substitute(
-                    num_faces=nf,
-                    image_size=is_,
-                    near=self.near,
-                    far=self.far,
-                ),
-                'function',
-            )(faces, self.face_index_map.ravel(), self.weight_map, self.face_map, self.z_map.ravel())
-        else:
-            loop = xp.arange(bs * nf).astype('int32')
-            lock = xp.zeros(self.images.shape, 'uint64')
-            chainer.cuda.elementwise(
-                'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 weight_map, raw float32 face_map, ' +
-                'raw float32 z_map, raw uint64 lock',
-                '',
-                string.Template('''
-                    const int bn = i / ${num_faces};
-                    const int fn = i % ${num_faces};
-                    const int is = ${image_size};
-                    const float* face = &faces[i * 9];
-
-                    /* check back */
-                    if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
-
-                    /* p0, p1, p2 = leftmost, middle, rightmost points */
-                    int p0_i, p1_i, p2_i;
-                    if (face[0] < face[3]) {
-                        if (face[6] < face[0]) p0_i = 2; else p0_i = 0;
-                        if (face[3] < face[6]) p2_i = 2; else p2_i = 1;
-                    } else {
-                        if (face[6] < face[3]) p0_i = 2; else p0_i = 1;
-                        if (face[0] < face[6]) p2_i = 2; else p2_i = 0;
-                    }
-                    for (int k = 0; k < 3; k++) if (p0_i != k && p2_i != k) p1_i = k;
-                    const float p0_xi = 0.5 * (face[3 * p0_i + 0] * is + is - 1);
-                    const float p0_yi = 0.5 * (face[3 * p0_i + 1] * is + is - 1);
-                    const float p1_xi = 0.5 * (face[3 * p1_i + 0] * is + is - 1);
-                    const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
-                    const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
-                    const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
-                    const float p0_zp = face[3 * p0_i + 2];
-                    const float p1_zp = face[3 * p1_i + 2];
-                    const float p2_zp = face[3 * p2_i + 2];
-                    if (p0_xi == p2_xi) return; // line, not triangle
-
-                    /* compute face_inv */
-                    float face_inv[9] = {
-                        p1_yi - p2_yi, p2_xi - p1_xi, p1_xi * p2_yi - p2_xi * p1_yi,
-                        p2_yi - p0_yi, p0_xi - p2_xi, p2_xi * p0_yi - p0_xi * p2_yi,
-                        p0_yi - p1_yi, p1_xi - p0_xi, p0_xi * p1_yi - p1_xi * p0_yi};
-                    float face_inv_denominator = (
-                        p2_xi * (p0_yi - p1_yi) +
-                        p0_xi * (p1_yi - p2_yi) +
-                        p1_xi * (p2_yi - p0_yi));
-                    for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
-
-                    /* from left to right */
-                    const int xi_min = max(ceil(p0_xi), 0.);
-                    const int xi_max = min(p2_xi, is - 1.);
-                    for (int xi = xi_min; xi <= xi_max; xi++) {
-                        /* compute yi_min and yi_max */
-                        float yi1, yi2;
-                        if (xi <= p1_xi) {
-                            if (p1_xi - p0_xi != 0) {
-                                yi1 = (p1_yi - p0_yi) / (p1_xi - p0_xi) * (xi - p0_xi) + p0_yi;
-                            } else {
-                                yi1 = p1_yi;
-                            }
-                        } else {
-                            if (p2_xi - p1_xi != 0) {
-                                yi1 = (p2_yi - p1_yi) / (p2_xi - p1_xi) * (xi - p1_xi) + p1_yi;
-                            } else {
-                                yi1 = p1_yi;
-                            }
-                        }
-                        yi2 = (p2_yi - p0_yi) / (p2_xi - p0_xi) * (xi - p0_xi) + p0_yi;
-
-                        /* from up to bottom */
-                        int yi_min = max(0., ceil(min(yi1, yi2)));
-                        int yi_max = min(max(yi1, yi2), is - 1.);
-                        for (int yi = yi_min; yi <= yi_max; yi++) {
-                            int index = bn * is * is + yi * is + xi;
-
-                            /* compute w = face_inv * p */
-                            float w[3];
-                            for (int k = 0; k < 3; k++) w[k] = (
-                                face_inv[3 * k + 0] * xi +
-                                face_inv[3 * k + 1] * yi +
-                                face_inv[3 * k + 2]);
-
-                            /* sum(w) -> 1, 0 < w < 1 */
-                            float w_sum = 0;
-                            for (int k = 0; k < 3; k++) {
-                                if (w[k] < 0) w[k] = 0;
-                                if (1 < w[k]) w[k] = 1;
-                                w_sum += w[k];
-                            }
-                            for (int k = 0; k < 3; k++) w[k] /= w_sum;
-
-                            /* compute 1 / zp = sum(w / z) */
-                            const float zp = 1. / (w[0] / p0_zp + w[1] / p1_zp + w[2] / p2_zp);
-                            if (zp <= ${near} || ${far} <= zp) continue;
-
-                            /* lock and update */
-                            bool locked = false;
-                            do {
-                                if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
-                                    if (zp < z_map[index]) {
-                                        atomicExch(&face_index_map[index], fn);
-                                        atomicExch(&z_map[index], zp);
-                                        atomicExch(&weight_map[3 * index + p0_i], w[0]);
-                                        atomicExch(&weight_map[3 * index + p1_i], w[1]);
-                                        atomicExch(&weight_map[3 * index + p2_i], w[2]);
-                                        for (int k = 0; k < 9; k++) atomicExch(&face_index_map[9 * index + k], face[k]);
-                                    }
+                        /* lock and update */
+                        bool locked = false;
+                        do {
+                            if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
+                                if (zp < z_map[index]) {
+                                    face_index_map[index] = fn;
+                                    z_map[index] = zp;
+                                    weight_map[3 * index + p0_i] = w[0];
+                                    weight_map[3 * index + p1_i] = w[1];
+                                    weight_map[3 * index + p2_i] = w[2];
+                                    for (int k = 0; k < 9; k++) face_map[9 * index + k] = face[k];
                                 }
-                                if (locked)
-                                {
-                                    atomicExch(&lock[index], 0);
-                                }
-                            } while (!locked);
-                        }
+                            }
+                            if (locked) atomicExch(&lock[index], 0);
+                        } while (!locked);
                     }
-                ''').substitute(
-                    num_faces=nf,
-                    image_size=is_,
-                    near=self.near,
-                    far=self.far,
-                ),
-                'function',
-            )(
-                loop, faces.ravel(), self.face_index_map.ravel(), self.weight_map.ravel(), self.face_map, self.z_map.ravel(),
-                lock,
-            )
+                }
+            ''').substitute(
+                num_faces=nf,
+                image_size=is_,
+                near=self.near,
+                far=self.far,
+            ),
+            'function',
+        )(
+            loop, faces.ravel(), self.face_index_map.ravel(), self.weight_map.ravel(), self.face_map,
+            self.z_map.ravel(), lock,
+        )
 
         # texture sampling
         background_colors = xp.array(self.background_color, 'float32')
@@ -306,6 +210,8 @@ class Rasterize(chainer.Function):
                     for (int k = 0; k < 3; k++) {
                         texture_index_float[k] = weight[k] * (ts - 1 - ${eps}) * (z / (face[2 + 3 * k]));
                     }
+                    float* sampling_weight_map_p = &sampling_weight_map[pi * 8];
+                    int* sampling_index_map_p = &sampling_index_map[pi * 8];
                     for (int pn = 0; pn < 8; pn++) {
                         /* blend */
                         float w = 1;                        // weight
@@ -322,8 +228,8 @@ class Rasterize(chainer.Function):
 
                         int isc = texture_index_int[0] * ts * ts + texture_index_int[1] * ts + texture_index_int[2];
                         for (int k = 0; k < 3; k++) new_pixel[k] += w * texture[isc * 3 + k];
-                        sampling_weight_map[pi * 8 + pn] = w;
-                        sampling_index_map[pi * 8 + pn] = isc;
+                        *sampling_weight_map_p++ = w;
+                        *sampling_index_map_p++ = isc;
                     }
                     memcpy(pixel, new_pixel, 3 * sizeof(float));
                 } else {
@@ -367,10 +273,14 @@ class Rasterize(chainer.Function):
 
                 if (0 <= face_index) {
                     float* grad_texture = &grad_textures[(bn * nf + face_index) * ts * ts * ts * 3];
+                    float* sampling_weight_map_p = &sampling_weight_map[pi * 8];
+                    int* sampling_index_map_p = &sampling_index_map[pi * 8];
                     for (int pn = 0; pn < 8; pn++) {
-                        float w = sampling_weight_map[pi * 8 + pn];
-                        int isc = sampling_index_map[pi * 8 + pn];
-                        for (int k = 0; k < 3; k++) atomicAdd(&grad_texture[isc * 3 + k], w * grad_images[pi * 3 + k]);
+                        float w = *sampling_weight_map_p++;
+                        int isc = *sampling_index_map_p++;
+                        float* grad_texture_p = &grad_texture[isc * 3];
+                        float* grad_images_p = &grad_images[pi * 3];
+                        for (int k = 0; k < 3; k++) atomicAdd(grad_texture_p++, w * *grad_images_p++);
                     }
                 }
             ''').substitute(
@@ -385,147 +295,201 @@ class Rasterize(chainer.Function):
         )
 
         # pseudo gradient
+        loop = xp.arange(bs * nf).astype('int32')
         chainer.cuda.elementwise(
-            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, ' +
-            'raw float32 grad_images, raw float32 grad_faces',
+            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, raw float32 grad_images, ' +
+            'raw float32 grad_faces',
             '',
             string.Template('''
-                /* exit if no gradient from upper layers */
-                const float* grad_pixel = &grad_images[3 * j];
-                const float grad_pixel_sum = grad_pixel[0] + grad_pixel[1] + grad_pixel[2];
-                if (grad_pixel_sum == 0) return;
-
-                /* compute current position & index */
-                const int nf = ${num_faces};
+                const int bn = i / ${num_faces};
+                const int fn = i % ${num_faces};
                 const int is = ${image_size};
-                const int is2 = is * is;                    // number of pixels
-                const int pi = j;                           // pixel index on all batches
-                const int bn = pi / (is2);                  // batch number
-                const int pyi = (pi % (is2)) / is;          // index of current y-position [0, is]
-                const int pxi = (pi % (is2)) % is;          // index of current x-position [0, is]
-                const float py = (1 - 1. / is) * ((2. / (is - 1)) * pyi - 1);   // coordinate of y-position [-1, 1]
-                const float px = (1 - 1. / is) * ((2. / (is - 1)) * pxi - 1);   // coordinate of x-position [-1, 1]
+                const float* face = &faces[i * 9];
+                float grad_face[9] = {};
 
-                const int pfn = face_index_map[pi];        // face number of current position
-                const float pp = images[pi];                // pixel intensity of current position
+                /* check backside */
+                if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
 
-                for (int axis = 0; axis < 2; axis++) {
-                    for (int direction = -1; direction <= 1; direction += 2) {
-                        int qfn_last = pfn;
-                        for (int d_pq = 1; d_pq < is; d_pq++) {
-                            int qxi, qyi;
-                            float qx, qy;
+                /* for each edge */
+                for (int edge_num = 0; edge_num < 3; edge_num++) {
+                    /* set points of target edge */
+                    const int p0_i = edge_num % 3;
+                    const int p1_i = (edge_num + 1) % 3;
+                    const int p2_i = (edge_num + 2) % 3;
+                    const float p0_xi = 0.5 * (face[3 * p0_i + 0] * is + is - 1);
+                    const float p0_yi = 0.5 * (face[3 * p0_i + 1] * is + is - 1);
+                    const float p1_xi = 0.5 * (face[3 * p1_i + 0] * is + is - 1);
+                    const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
+                    const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
+                    const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
+
+                    /* for dy, dx */
+                    for (int axis = 0; axis < 2; axis++) {
+                        /* */
+                        float p0_d0, p0_d1, p1_d0, p1_d1, p2_d0, p2_d1;
+                        if (axis == 0) {
+                            p0_d0 = p0_xi;
+                            p0_d1 = p0_yi;
+                            p1_d0 = p1_xi;
+                            p1_d1 = p1_yi;
+                            p2_d0 = p2_xi;
+                            p2_d1 = p2_yi;
+                        } else {
+                            p0_d0 = p0_yi;
+                            p0_d1 = p0_xi;
+                            p1_d0 = p1_yi;
+                            p1_d1 = p1_xi;
+                            p2_d0 = p2_yi;
+                            p2_d1 = p2_xi;
+                        }
+
+                        /* set direction */
+                        int direction;
+                        if (axis == 0) {
+                            if (p0_d0 < p1_d0) direction = -1; else direction = 1;
+                        } else {
+                            if (p0_d0 < p1_d0) direction = 1; else direction = -1;
+                        }
+
+                        /* along edge */
+                        int d0_from, d0_to;
+                        d0_from = max(ceil(min(p0_d0, p1_d0)), 0.);
+                        d0_to = min(max(p0_d0, p1_d0), is - 1.);
+                        for (int d0 = d0_from; d0 <= d0_to; d0++) {
+                            /* get cross point */
+                            int d1_in, d1_out;
+                            const float d1_cross = (p1_d1 - p0_d1) / (p1_d0 - p0_d0) * (d0 - p0_d0) + p0_d1;
+                            if (0 < direction) d1_in = floor(d1_cross); else d1_in = ceil(d1_cross);
+                            d1_out = d1_in + direction;
+
+                            /* continue if cross point is not shown */
+                            if (d1_in < 0 || is <= d1_in) continue;
+                            if (d1_out < 0 || is <= d1_out) continue;
+                            float* color_in;
+                            float* color_out;
                             if (axis == 0) {
-                                qxi = pxi + direction * d_pq;
-                                qyi = pyi;
-                                qx = (1 - 1. / is) * ((2. / (is - 1)) * qxi - 1);
-                                qy = py;
-                                if (qxi < 0 || is <= qxi) break;
+                                color_in = &images[3 * (bn * is * is + d1_in * is + d0)];
+                                color_out = &images[3 * (bn * is * is + d1_out * is + d0)];
                             } else {
-                                qxi = pxi;
-                                qyi = pyi + direction * d_pq;
-                                qx = px;
-                                qy = (1 - 1. / is) * ((2. / (is - 1)) * qyi - 1);
-                                if (qyi < 0 || is <= qyi) break;
+                                color_in = &images[3 * (bn * is * is + d0 * is + d1_in)];
+                                color_out = &images[3 * (bn * is * is + d0 * is + d1_out)];
                             }
 
-                            const int qi = bn * is2 + qyi * is + qxi;
-                            const float qp = images[qi];
-                            const float diff = qp - pp;
-                            const int qfn = face_index_map[qi];
-
-                            if (diff == 0) continue;                    // continue if same pixel value
-                            if (0 <= diff * grad_pixel_sum) continue;   // continue if wrong gradient
-                            if (qfn == qfn_last) continue;              // continue if p & q are on same face
-
-                            /* adjacent point to check edge */
-                            int rxi, ryi;
-                            float rx, ry;
+                            /* out */
+                            bool is_in_fn = true;
                             if (axis == 0) {
-                                rxi = qxi - direction;
-                                ryi = pyi;
-                                rx = (1 - 1. / is) * ((2. / (is - 1)) * rxi - 1);
-                                ry = py;
+                                if (face_index_map[bn * is * is + d1_in * is + d0] != fn) is_in_fn = false;
                             } else {
-                                rxi = pxi;
-                                ryi = qyi - direction;
-                                rx = px;
-                                ry = (1 - 1. / is) * ((2. / (is - 1)) * ryi - 1);
+                                if (face_index_map[bn * is * is + d0 * is + d1_in] != fn) is_in_fn = false;
                             }
-
-                            for (int mode = 0; mode < 2; mode++) {
-                                float* face;
-                                float* grad_face;
-                                if (mode == 0) {
-                                    if (qfn < 0) continue;
-                                    face = &faces[(bn * nf + qfn) * 3 * 3];
-                                    grad_face = &grad_faces[(bn * nf + qfn) * 3 * 3];
-                                } else if (mode == 1) {
-                                    if (qfn_last != pfn) continue;
-                                    if (pfn < 0) continue;
-                                    face = &faces[(bn * nf + pfn) * 3 * 3];
-                                    grad_face = &grad_faces[(bn * nf + pfn) * 3 * 3];
+                            if (is_in_fn) {
+                                int d1_limit;
+                                if (0 < direction) d1_limit = is - 1; else d1_limit = 0;
+                                int d1_from = max(min(d1_out, d1_limit), 0);
+                                int d1_to = min(max(d1_out, d1_limit), is - 1);
+                                float* images_p;
+                                float* grad_images_p;
+                                if (axis == 0) {
+                                    images_p = &images[3 * (bn * is * is + d1_from * is + d0)] - 3 * is;
+                                    grad_images_p = &grad_images[3 * (bn * is * is + d1_from * is + d0)] - 3 * is;
+                                } else {
+                                    images_p = &images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
+                                    grad_images_p = &grad_images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
                                 }
-
-                                /* for each edge */
-                                for (int vi0 = 0; vi0 < 3; vi0++) {
-                                    /* get vertices */
-                                    int vi1 = (vi0 + 1) % 3;
-                                    float* v0 = &face[vi0 * 3];
-                                    float* v1 = &face[vi1 * 3];
-
-                                    /* get cross point */
-                                    float sx, sy;
+                                for (int d1 = d1_from; d1 <= d1_to; d1++) {
+                                    float diff = 0, grad = 0;
                                     if (axis == 0) {
-                                        sx = (py - v0[1]) * (v1[0] - v0[0]) / (v1[1] - v0[1]) + v0[0];
-                                        sy = py;
+                                        images_p += 3 * is;
+                                        grad_images_p += 3 * is;
                                     } else {
-                                        sx = px;
-                                        sy = (px - v0[0]) * (v1[1] - v0[1]) / (v1[0] - v0[0]) + v0[1];
+                                        images_p += 3;
+                                        grad_images_p += 3;
                                     }
-
-                                    /* continue if not cross edge */
-                                    if ((rx < sx) != (sx < qx)) continue;
-                                    if ((ry < sy) != (sy < qy)) continue;
-                                    if ((v0[1] < sy) != (sy < v1[1])) continue;
-                                    if ((v0[0] < sx) != (sx < v1[0])) continue;
-
-                                    /* signed distance (positive if pi < qi) */
-                                    float dist_v0, dist_v1;
-                                    if (axis == 0) {
-                                        dist_v0 = (px - sx) * (v1[1] - v0[1]) / (v1[1] - py);
-                                        dist_v1 = (px - sx) * (v0[1] - v1[1]) / (v0[1] - py);
-                                    } else {
-                                        dist_v0 = (py - sy) * (v1[0] - v0[0]) / (v1[0] - px);
-                                        dist_v1 = (py - sy) * (v0[0] - v1[0]) / (v0[0] - px);
+                                    for (int k = 0; k < 3; k++) {
+                                        diff += (images_p[k] - color_in[k]);
+                                        grad += grad_images_p[k];
                                     }
-
-                                    /* add small epsilon */
-                                    dist_v0 = (0 < dist_v0) ? dist_v0 + ${eps} : dist_v0 - ${eps};
-                                    dist_v1 = (0 < dist_v1) ? dist_v1 + ${eps} : dist_v1 - ${eps};
-
-                                    /* gradient */
-                                    const float g_v0 = grad_pixel_sum * diff / dist_v0;
-                                    const float g_v1 = grad_pixel_sum * diff / dist_v1;
-
-                                    atomicAdd(&grad_face[vi0 * 3 + axis], g_v0);
-                                    atomicAdd(&grad_face[vi1 * 3 + axis], g_v1);
+                                    if (diff * grad <= 0) continue;
+                                    if (p1_d0 != d0) {
+                                        float dist = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
+                                        dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
+                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                    }
+                                    if (p0_d0 != d0) {
+                                        float dist = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
+                                        dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
+                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                    }
                                 }
                             }
-                            qfn_last = qfn;
+
+                            /* in */
+                            {
+                                int d1_limit;
+                                float d0_cross2;
+                                if ((d0 - p0_d0) * (d0 - p2_d0) < 0) {
+                                    d0_cross2 = (p2_d1 - p0_d1) / (p2_d0 - p0_d0) * (d0 - p0_d0) + p0_d1;
+                                } else {
+                                    d0_cross2 = (p1_d1 - p2_d1) / (p1_d0 - p2_d0) * (d0 - p2_d0) + p2_d1;
+                                }
+                                if (0 < direction) d1_limit = ceil(d0_cross2); else d1_limit = floor(d0_cross2);
+                                int d1_from = max(min(d1_in, d1_limit), 0);
+                                int d1_to = min(max(d1_in, d1_limit), is - 1);
+                                int* face_index_map_p;
+                                float* images_p;
+                                float* grad_images_p;
+                                if (axis == 0) {
+                                    face_index_map_p = &face_index_map[bn * is * is + d1_from * is + d0] - is;
+                                    images_p = &images[3 * (bn * is * is + d1_from * is + d0)] - 3 * is;
+                                    grad_images_p = &grad_images[3 * (bn * is * is + d1_from * is + d0)] - 3 * is;
+                                } else {
+                                    face_index_map_p = &face_index_map[bn * is * is + d0 * is + d1_from] - 1;
+                                    images_p = &images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
+                                    grad_images_p = &grad_images[3 * (bn * is * is + d0 * is + d1_from)] - 3;
+                                }
+                                for (int d1 = d1_from; d1 <= d1_to; d1++) {
+                                    float diff = 0, grad = 0;
+                                    if (axis == 0) {
+                                        face_index_map_p += is;
+                                        images_p += 3 * is;
+                                        grad_images_p += 3 * is;
+                                        if (*face_index_map_p != fn) continue;
+                                    } else {
+                                        face_index_map_p += 1;
+                                        images_p += 3;
+                                        grad_images_p += 3;
+                                        if (*face_index_map_p != fn) continue;
+                                    }
+                                    for (int k = 0; k < 3; k++) {
+                                        diff += images_p[k] - color_out[k];
+                                        grad += grad_images_p[k];
+                                    }
+                                    if (diff * grad <= 0) continue;
+                                    if (p1_d0 != d0) {
+                                        float dist = (p1_d0 - p0_d0) / (p1_d0 - d0) * (d1 - d1_cross) * 2. / is;
+                                        dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
+                                        grad_face[p0_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                    }
+                                    if (p0_d0 != d0) {
+                                        float dist = (p1_d0 - p0_d0) / (d0 - p0_d0) * (d1 - d1_cross) * 2. / is;
+                                        dist = (0 < dist) ? dist + ${eps} : dist - ${eps};
+                                        grad_face[p1_i * 3 + (1 - axis)] -= grad * diff / dist / 3.;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
+
+                /* set to global gradient variable */
+                for (int k = 0; k < 9; k++) grad_faces[i * 9 + k] = grad_face[k];
             ''').substitute(
                 image_size=is_,
                 num_faces=nf,
                 eps=self.eps,
             ),
             'function',
-        )(
-            xp.arange(bs * is_ * is_).astype('int32'), faces, self.face_index_map, self.images, grad_images.ravel(),
-            grad_faces,
-        )
+        )(loop, faces, self.face_index_map, self.images, grad_images.ravel(), grad_faces)
 
         return grad_faces, grad_textures
 
