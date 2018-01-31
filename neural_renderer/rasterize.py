@@ -1,6 +1,7 @@
+import string
+
 import chainer
 import chainer.functions as cf
-import string
 
 
 class Rasterize(chainer.Function):
@@ -498,7 +499,8 @@ class Rasterize(chainer.Function):
         raise NotImplementedError
 
 
-def rasterize(faces, textures, image_size=256, anti_aliasing=True, near=0.1, far=100, eps=1e-3, background_color=(0, 0, 0)):
+def rasterize(
+        faces, textures, image_size=256, anti_aliasing=True, near=0.1, far=100, eps=1e-3, background_color=(0, 0, 0)):
     if anti_aliasing:
         images = Rasterize(image_size * 2, near, far, eps, background_color)(faces, textures)
         images = images.transpose((0, 3, 1, 2))

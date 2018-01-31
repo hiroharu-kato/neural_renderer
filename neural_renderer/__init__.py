@@ -12,4 +12,4 @@ from rasterize_silhouettes import rasterize_silhouettes
 from renderer import Renderer
 from vertices_to_faces import vertices_to_faces
 
-__version__ = '0.0.2'
+__version__ = '1.0.0'

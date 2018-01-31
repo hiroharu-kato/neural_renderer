@@ -1,3 +1,5 @@
+import unittest
+
 import chainer
 import chainer.functions as cf
 import chainer.gradient_check
@@ -5,13 +7,14 @@ import chainer.testing
 import cupy as cp
 import numpy as np
 import scipy.misc
-import unittest
 
 import neural_renderer
 
 
 class TestRasterizeSilhouettes(unittest.TestCase):
     def test_case1(self):
+        """Whether a silhouette by neural renderer matches that by Blender."""
+
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -36,6 +39,8 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case1(self):
+        """Backward if non-zero gradient is out of a face."""
+
         vertices = [
             [0.8, 0.8, 1.],
             [0.0, -0.5, 1.],
@@ -71,6 +76,8 @@ class TestRasterizeSilhouettes(unittest.TestCase):
                 chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case2(self):
+        """Backward if non-zero gradient is on a face."""
+
         vertices = [
             [0.8, 0.8, 1.],
             [-0.5, -0.8, 1.],

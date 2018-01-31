@@ -86,5 +86,6 @@ def run():
     print 'texture forward time: %.3f ms' % (np.sum(times_forward[1:]) / len(times_forward[1:]))
     print 'texture backward time: %.3f ms' % (np.sum(times_backward[1:]) / len(times_backward[1:]))
 
+
 if __name__ == '__main__':
     run()

@@ -33,17 +33,16 @@ class RasterizeSilhouette(chainer.Function):
         image_size = self.image_size
 
         # initialize buffers
-        self.face_index_map = xp.ascontiguousarray(-1 * xp.ones((batch_size, image_size, image_size), dtype='int32'))
+        self.face_index_map = -1 * xp.ascontiguousarray(xp.ones((batch_size, image_size, image_size), dtype='int32'))
         self.images = xp.ascontiguousarray(xp.zeros((batch_size, image_size, image_size), dtype='float32'))
 
         # vertices -> face_index_map, z_map
         # face_index_map = -1 if background
-        # fast implementation using unsafe pseudo mutex
         loop = xp.arange(batch_size * num_faces).astype('int32')
         lock = xp.zeros(self.images.shape, 'int32')
-        z_buffer = xp.zeros(self.images.shape, 'float32') + self.far
+        z_map = xp.zeros(self.images.shape, 'float32') + self.far
         chainer.cuda.elementwise(
-            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, raw float32 z_buffer, ' +
+            'int32 j, raw float32 faces, raw int32 face_index_map, raw float32 images, raw float32 z_map, ' +
             'raw int32 lock',
             '',
             string.Template('''
@@ -55,58 +54,61 @@ class RasterizeSilhouette(chainer.Function):
                 /* check back */
                 if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
 
-                /* p0, p1, p2 = leftmost, middle, rightmost points */
-                int p0_i, p1_i, p2_i;
+                /* pi[0], pi[1], pi[2] = leftmost, middle, rightmost points */
+                int pi[3];
                 if (face[0] < face[3]) {
-                    if (face[6] < face[0]) p0_i = 2; else p0_i = 0;
-                    if (face[3] < face[6]) p2_i = 2; else p2_i = 1;
+                    if (face[6] < face[0]) pi[0] = 2; else pi[0] = 0;
+                    if (face[3] < face[6]) pi[2] = 2; else pi[2] = 1;
                 } else {
-                    if (face[6] < face[3]) p0_i = 2; else p0_i = 1;
-                    if (face[0] < face[6]) p2_i = 2; else p2_i = 0;
+                    if (face[6] < face[3]) pi[0] = 2; else pi[0] = 1;
+                    if (face[0] < face[6]) pi[2] = 2; else pi[2] = 0;
                 }
-                for (int k = 0; k < 3; k++) if (p0_i != k && p2_i != k) p1_i = k;
-                const float p0_xi = 0.5 * (face[3 * p0_i + 0] * is + is - 1);
-                const float p0_yi = 0.5 * (face[3 * p0_i + 1] * is + is - 1);
-                const float p1_xi = 0.5 * (face[3 * p1_i + 0] * is + is - 1);
-                const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
-                const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
-                const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
-                const float p0_zp = face[3 * p0_i + 2];
-                const float p1_zp = face[3 * p1_i + 2];
-                const float p2_zp = face[3 * p2_i + 2];
-                if (p0_xi == p2_xi) return; // line, not triangle
+                for (int k = 0; k < 3; k++) if (pi[0] != k && pi[2] != k) pi[1] = k;
+
+                /* p[num][xyz]: x, y is normalized from [-1, 1] to [0, is - 1]. */
+                float p[3][3];
+                for (int num = 0; num < 3; num++) {
+                    for (int dim = 0; dim < 3; dim++) {
+                        if (dim != 2) {
+                            p[num][dim] = 0.5 * (face[3 * pi[num] + dim] * is + is - 1);
+                        } else {
+                            p[num][dim] = face[3 * pi[num] + dim];
+                        }
+                    }
+                }
+                if (p[0][0] == p[2][0]) return; // line, not triangle
 
                 /* compute face_inv */
                 float face_inv[9] = {
-                    p1_yi - p2_yi, p2_xi - p1_xi, p1_xi * p2_yi - p2_xi * p1_yi,
-                    p2_yi - p0_yi, p0_xi - p2_xi, p2_xi * p0_yi - p0_xi * p2_yi,
-                    p0_yi - p1_yi, p1_xi - p0_xi, p0_xi * p1_yi - p1_xi * p0_yi};
+                    p[1][1] - p[2][1], p[2][0] - p[1][0], p[1][0] * p[2][1] - p[2][0] * p[1][1],
+                    p[2][1] - p[0][1], p[0][0] - p[2][0], p[2][0] * p[0][1] - p[0][0] * p[2][1],
+                    p[0][1] - p[1][1], p[1][0] - p[0][0], p[0][0] * p[1][1] - p[1][0] * p[0][1]};
                 float face_inv_denominator = (
-                    p2_xi * (p0_yi - p1_yi) +
-                    p0_xi * (p1_yi - p2_yi) +
-                    p1_xi * (p2_yi - p0_yi));
+                    p[2][0] * (p[0][1] - p[1][1]) +
+                    p[0][0] * (p[1][1] - p[2][1]) +
+                    p[1][0] * (p[2][1] - p[0][1]));
                 for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
 
                 /* from left to right */
-                const int xi_min = max(ceil(p0_xi), 0.);
-                const int xi_max = min(p2_xi, is - 1.);
+                const int xi_min = max(ceil(p[0][0]), 0.);
+                const int xi_max = min(p[2][0], is - 1.);
                 for (int xi = xi_min; xi <= xi_max; xi++) {
                     /* compute yi_min and yi_max */
                     float yi1, yi2;
-                    if (xi <= p1_xi) {
-                        if (p1_xi - p0_xi != 0) {
-                            yi1 = (p1_yi - p0_yi) / (p1_xi - p0_xi) * (xi - p0_xi) + p0_yi;
+                    if (xi <= p[1][0]) {
+                        if (p[1][0] - p[0][0] != 0) {
+                            yi1 = (p[1][1] - p[0][1]) / (p[1][0] - p[0][0]) * (xi - p[0][0]) + p[0][1];
                         } else {
-                            yi1 = p1_yi;
+                            yi1 = p[1][1];
                         }
                     } else {
-                        if (p2_xi - p1_xi != 0) {
-                            yi1 = (p2_yi - p1_yi) / (p2_xi - p1_xi) * (xi - p1_xi) + p1_yi;
+                        if (p[2][0] - p[1][0] != 0) {
+                            yi1 = (p[2][1] - p[1][1]) / (p[2][0] - p[1][0]) * (xi - p[1][0]) + p[1][1];
                         } else {
-                            yi1 = p1_yi;
+                            yi1 = p[1][1];
                         }
                     }
-                    yi2 = (p2_yi - p0_yi) / (p2_xi - p0_xi) * (xi - p0_xi) + p0_yi;
+                    yi2 = (p[2][1] - p[0][1]) / (p[2][0] - p[0][0]) * (xi - p[0][0]) + p[0][1];
 
                     /* from up to bottom */
                     int yi_min = max(0., ceil(min(yi1, yi2)));
@@ -131,23 +133,20 @@ class RasterizeSilhouette(chainer.Function):
                         for (int k = 0; k < 3; k++) w[k] /= w_sum;
 
                         /* compute 1 / zp = sum(w / z) */
-                        const float zp = 1. / (w[0] / p0_zp + w[1] / p1_zp + w[2] / p2_zp);
+                        const float zp = 1. / (w[0] / p[0][2] + w[1] / p[1][2] + w[2] / p[2][2]);
                         if (zp <= ${near} || ${far} <= zp) continue;
 
                         /* lock and update */
                         bool locked = false;
                         do {
                             if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
-                                if (zp < z_buffer[index]) {
+                                if (zp < z_map[index]) {
                                     atomicExch(&images[index], 1);
                                     atomicExch(&face_index_map[index], fn);
-                                    atomicExch(&z_buffer[index], zp);
+                                    atomicExch(&z_map[index], zp);
                                 }
                             }
-                            if (locked)
-                            {
-                                atomicExch(&lock[index], 0);
-                            }
+                            if (locked) atomicExch(&lock[index], 0);
                         } while (!locked);
                     }
                 }
@@ -158,7 +157,7 @@ class RasterizeSilhouette(chainer.Function):
                 far=self.far,
             ),
             'function',
-        )(loop, faces.ravel(), self.face_index_map.ravel(), self.images.ravel(), z_buffer, lock)
+        )(loop, faces.ravel(), self.face_index_map.ravel(), self.images.ravel(), z_map, lock)
 
         return self.images,
 
@@ -182,7 +181,7 @@ class RasterizeSilhouette(chainer.Function):
                 const int is = ${image_size};
                 const float* face = &faces[i * 9];
                 float grad_face[9] = {};
-
+                
                 /* check backside */
                 if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
 
@@ -198,7 +197,6 @@ class RasterizeSilhouette(chainer.Function):
                     const float p1_yi = 0.5 * (face[3 * p1_i + 1] * is + is - 1);
                     const float p2_xi = 0.5 * (face[3 * p2_i + 0] * is + is - 1);
                     const float p2_yi = 0.5 * (face[3 * p2_i + 1] * is + is - 1);
-
                     /* for dy, dx */
                     for (int axis = 0; axis < 2; axis++) {
                         /* */
@@ -218,7 +216,6 @@ class RasterizeSilhouette(chainer.Function):
                             p2_d0 = p2_yi;
                             p2_d1 = p2_xi;
                         }
-
                         /* set direction */
                         int direction;
                         if (axis == 0) {
@@ -226,7 +223,6 @@ class RasterizeSilhouette(chainer.Function):
                         } else {
                             if (p0_d0 < p1_d0) direction = 1; else direction = -1;
                         }
-
                         /* along edge */
                         int d0_from, d0_to;
                         d0_from = max(ceil(min(p0_d0, p1_d0)), 0.);
@@ -237,7 +233,6 @@ class RasterizeSilhouette(chainer.Function):
                             const float d1_cross = (p1_d1 - p0_d1) / (p1_d0 - p0_d0) * (d0 - p0_d0) + p0_d1;
                             if (0 < direction) d1_in = floor(d1_cross); else d1_in = ceil(d1_cross);
                             d1_out = d1_in + direction;
-
                             /* continue if cross point is not shown */
                             if (d1_in < 0 || is <= d1_in) continue;
                             if (d1_out < 0 || is <= d1_out) continue;
@@ -249,7 +244,6 @@ class RasterizeSilhouette(chainer.Function):
                                 color_in = images[bn * is * is + d0 * is + d1_in];
                                 color_out = images[bn * is * is + d0 * is + d1_out];
                             }
-
                             /* out */
                             bool is_in_fn = true;
                             if (axis == 0) {
@@ -297,7 +291,6 @@ class RasterizeSilhouette(chainer.Function):
                                     }
                                 }
                             }
-
                             /* in */
                             {
                                 int d1_limit;
@@ -355,7 +348,6 @@ class RasterizeSilhouette(chainer.Function):
                         }
                     }
                 }
-
                 /* set to global gradient variable */
                 for (int k = 0; k < 9; k++) grad_faces[i * 9 + k] = grad_face[k];
             ''').substitute(

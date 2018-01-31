@@ -1,13 +1,13 @@
 # Neural 3D Mesh Renderer
 
-This is the code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
+This is code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
 
 This repository only contains the core component and simple examples. Other examples are on the [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
 
 Related repositories:
 
 * Neural Renderer (this repository)
-    * Single-image 3D mesh reconstruction
+    * [Single-image 3D mesh reconstruction](https://github.com/hiroharu-kato/mesh_reconstruction)
     * [2D-to-3D style transfer](https://github.com/hiroharu-kato/style_transfer_3d)
     * [3D DeepDream](https://github.com/hiroharu-kato/deep_dream_3d)
 

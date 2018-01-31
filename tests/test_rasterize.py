@@ -5,13 +5,16 @@ import chainer.functions as cf
 import chainer.gradient_check
 import chainer.testing
 import cupy as cp
-import scipy.misc
 import numpy as np
+import scipy.misc
+
 import neural_renderer
 
 
 class TestRasterize(unittest.TestCase):
-    def test_case1(self):
+    def test_forward_case1(self):
+        """Rendering a teapot without anti-aliasing."""
+
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -25,6 +28,7 @@ class TestRasterize(unittest.TestCase):
         renderer.image_size = 256
         renderer.anti_aliasing = False
 
+        # render
         images = renderer.render(vertices, faces, textures)
         images = images.data.get()
         image = images[0]
@@ -32,7 +36,9 @@ class TestRasterize(unittest.TestCase):
 
         scipy.misc.imsave('./tests/data/test_rasterize1.png', image)
 
-    def test_case2(self):
+    def test_forward_case2(self):
+        """Rendering a teapot with anti-aliasing and another viewpoint."""
+
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -45,6 +51,7 @@ class TestRasterize(unittest.TestCase):
         renderer = neural_renderer.Renderer()
         renderer.eye = [1, 1, -2.7]
 
+        # render
         images = renderer.render(vertices, faces, textures)
         images = images.data.get()
         image = images[0]
@@ -52,7 +59,9 @@ class TestRasterize(unittest.TestCase):
 
         scipy.misc.imsave('./tests/data/test_rasterize2.png', image)
 
-    def test_forward_case1(self):
+    def test_forward_case3(self):
+        """Whether a silhouette by neural renderer matches that by Blender."""
+
         # load teapot
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         vertices = vertices[None, :, :]
@@ -81,6 +90,8 @@ class TestRasterize(unittest.TestCase):
         chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case1(self):
+        """Backward if non-zero gradient is out of a face."""
+
         vertices = [
             [0.8, 0.8, 1.],
             [0.0, -0.5, 1.],
@@ -120,6 +131,8 @@ class TestRasterize(unittest.TestCase):
                 chainer.testing.assert_allclose(ref, image)
 
     def test_backward_case2(self):
+        """Backward if non-zero gradient is on a face."""
+
         vertices = [
             [0.8, 0.8, 1.],
             [-0.5, -0.8, 1.],

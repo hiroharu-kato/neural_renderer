@@ -1,3 +1,8 @@
+"""
+Custom optimizers.
+- do not update a weight if the gradient is zero.
+- use parameter-wise learning rate specified by param.lr.
+"""
 import chainer
 
 

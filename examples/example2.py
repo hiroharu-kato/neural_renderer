@@ -44,7 +44,7 @@ class Model(chainer.Link):
         self.image_ref = chainer.cuda.to_gpu(self.image_ref)
 
     def __call__(self):
-        self.renderer.eye = neural_renderer.get_points_from_angles(2.72, 0, 90)
+        self.renderer.eye = neural_renderer.get_points_from_angles(2.732, 0, 90)
         image = self.renderer.render_silhouettes(self.vertices, self.faces)
         loss = cf.sum(cf.square(image - self.image_ref[None, :, :]))
         return loss
