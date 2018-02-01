@@ -1,3 +1,5 @@
+import math
+
 import chainer.functions as cf
 
 import neural_renderer
@@ -13,8 +15,8 @@ class Renderer(object):
 
         # camera
         self.perspective = True
-        self.focal_length = 1.732
-        self.eye = [0, 0, -self.focal_length - 1]
+        self.viewing_angle = 30
+        self.eye = [0, 0, -(1. / math.tan(math.radians(self.viewing_angle)) + 1)]
         self.camera_mode = 'look_at'
         self.camera_direction = [0, 0, 1]
         self.near = 0.1
@@ -43,7 +45,7 @@ class Renderer(object):
 
         # perspective transformation
         if self.perspective:
-            vertices = neural_renderer.perspective(vertices)
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
 
         # rasterization
         faces = neural_renderer.vertices_to_faces(vertices, faces)
@@ -75,7 +77,7 @@ class Renderer(object):
 
         # perspective transformation
         if self.perspective:
-            vertices = neural_renderer.perspective(vertices)
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
 
         # rasterization
         faces = neural_renderer.vertices_to_faces(vertices, faces)
