@@ -3,7 +3,7 @@
 This is code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
 
 <center>
-![](http://hiroharu-kato.com/assets/img/neural_renderer/en2.gif)
+    <img src="http://hiroharu-kato.com/assets/img/neural_renderer/en2.gif">
 </center>
 
 For more details, plase visit [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
