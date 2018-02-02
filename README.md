@@ -3,27 +3,7 @@
 This is code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
 
 <center>
-    <div style="overflow: hidden; margin-bottom: 2em;">
-        <div style="float: left; margin-left:20px; margin-right:20px;" width="200" align="center">
-            <h4>3D Mesh Reconstruction</h4>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/chair.png" width="160"><br>
-            <svg width=96 height=16 style="margin: 0.5em;"><polygon points="0,0 48,16 96,0" style="fill: lightgray;"></svg><br>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/nr_chair.gif" width="160">
-        </div>
-        <div style="float: left; margin-left:20px; margin-right:20px;" width="400" align="center">
-            <h4>2D-to-3D Style Transfer</h4>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/bunny.gif" width="160">
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/munch.jpg" width="160"><br>
-            <svg width=96 height=16 style="margin: 0.5em;"><polygon points="0,0 48,16 96,0" style="fill: lightgray;"></svg><br>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/style_transfer_bunny_munch.gif" width="160">
-        </div>
-        <div style="float: left; margin-left:20px; margin-right:20px;" width="200" align="center">
-            <h4>3D DeepDream</h4>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/teapot.gif" width="160"><br>
-            <svg width=96 height=16 style="margin: 0.5em;"><polygon points="0,0 48,16 96,0" style="fill: lightgray;"></svg><br>
-            <img src="http://hiroharu-kato.com/assets/img/neural_renderer/deep_dream_teapot.gif" width="160">
-        </div>
-    </div>
+![](http://hiroharu-kato.com/assets/img/neural_renderer/en2.gif)
 </center>
 
 For more details, plase visit [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
