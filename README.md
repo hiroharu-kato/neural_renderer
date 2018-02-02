@@ -4,7 +4,7 @@ This is code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/pr
 
 ![](http://hiroharu-kato.com/assets/img/neural_renderer/thumbnail_en.png)
 
-For more details, plase visit [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
+For more details, please visit [project page](http://hiroharu-kato.com/projects_en/neural_renderer.html).
 
 This repository only contains the core component and simple examples. Related repositories are:
 
