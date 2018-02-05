@@ -223,8 +223,130 @@ class Rasterize(chainer.Function):
                 ),
                 'function',
             )(loop, self.faces, self.face_index_map, self.weight_map, self.depth_map, self.face_inv_map, lock)
+
         else:
-            raise NotImplementedError
+            # for each face
+            faces_inv = self.xp.zeros_like(self.faces)
+            loop = self.xp.arange(self.batch_size * self.num_faces).astype('int32')
+            chainer.cuda.elementwise(
+                'int32 _, raw float32 faces, raw float32 faces_inv',
+                '',
+                string.Template('''
+                    /* face[v012][RGB] */
+                    const int is = ${image_size};
+                    const float* face = &faces[i * 9];
+                    float* face_inv_g = &faces_inv[i * 9];
+
+                    /* return if backside */
+                    if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0]))
+                        continue;
+
+                    /* p[num][xy]: x, y is normalized from [-1, 1] to [0, is - 1]. */
+                    float p[3][2];
+                    for (int num = 0; num < 3; num++) for (int dim = 0; dim < 2; dim++)
+                        p[num][dim] = 0.5 * (face[3 * num + dim] * is + is - 1);
+
+                    /* compute face_inv */
+                    float face_inv[9] = {
+                        p[1][1] - p[2][1], p[2][0] - p[1][0], p[1][0] * p[2][1] - p[2][0] * p[1][1],
+                        p[2][1] - p[0][1], p[0][0] - p[2][0], p[2][0] * p[0][1] - p[0][0] * p[2][1],
+                        p[0][1] - p[1][1], p[1][0] - p[0][0], p[0][0] * p[1][1] - p[1][0] * p[0][1]};
+                    float face_inv_denominator = (
+                        p[2][0] * (p[0][1] - p[1][1]) +
+                        p[0][0] * (p[1][1] - p[2][1]) +
+                        p[1][0] * (p[2][1] - p[0][1]));
+                    for (int k = 0; k < 9; k++) face_inv[k] /= face_inv_denominator;
+
+                    /* set to global memory */
+                    for (int k = 0; k < 9; k++) face_inv_g[k] = face_inv[k];
+                ''').substitute(
+                    image_size=self.image_size,
+                ),
+                'function',
+            )(loop, self.faces, faces_inv)
+
+            # for each pixel
+            loop = self.xp.arange(self.batch_size * self.image_size * self.image_size).astype('int32')
+            chainer.cuda.elementwise(
+                'int32 _, raw float32 faces, raw float32 faces_inv, raw int32 face_index_map, ' +
+                'raw float32 weight_map, raw float32 depth_map, raw float32 face_inv_map',
+                '',
+                string.Template('''
+                    const int is = ${image_size};
+                    const int nf = ${num_faces};
+                    const int bn = i / (is * is);
+                    const int pn = i % (is * is);
+                    const int yi = pn / is;
+                    const int xi = pn % is;
+                    const float yp = (2. * yi + 1 - is) / is;
+                    const float xp = (2. * xi + 1 - is) / is;
+
+                    float* face = &faces[bn * nf * 9] - 9;
+                    float* face_inv = &faces_inv[bn * nf * 9] - 9;
+                    float depth_min = ${far};
+                    int face_index_min = -1;
+                    float weight_min[3];
+                    float face_inv_min[9];
+                    for (int fn = 0; fn < nf; fn++) {
+                        /* go to next face */
+                        face += 9;
+                        face_inv += 9;
+
+                        /* return if backside */
+                        if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0]))
+                            continue;
+
+                        /* check [py, px] is inside the face */
+                        if (((yp - face[1]) * (face[3] - face[0]) < (xp - face[0]) * (face[4] - face[1])) ||
+                            ((yp - face[4]) * (face[6] - face[3]) < (xp - face[3]) * (face[7] - face[4])) ||
+                            ((yp - face[7]) * (face[0] - face[6]) < (xp - face[6]) * (face[1] - face[7]))) continue;
+
+                        /* compute w = face_inv * p */
+                        float w[3];
+                        for (int k = 0; k < 3; k++)
+                        w[0] = face_inv[3 * 0 + 0] * xi + face_inv[3 * 0 + 1] * yi + face_inv[3 * 0 + 2];
+                        w[1] = face_inv[3 * 1 + 0] * xi + face_inv[3 * 1 + 1] * yi + face_inv[3 * 1 + 2];
+                        w[2] = face_inv[3 * 2 + 0] * xi + face_inv[3 * 2 + 1] * yi + face_inv[3 * 2 + 2];
+
+                        /* sum(w) -> 1, 0 < w < 1 */
+                        float w_sum = 0;
+                        for (int k = 0; k < 3; k++) {
+                            w[k] = min(max(w[k], 0.), 1.);
+                            w_sum += w[k];
+                        }
+                        for (int k = 0; k < 3; k++) w[k] /= w_sum;
+
+                        /* compute 1 / zp = sum(w / z) */
+                        const float zp = 1. / (w[0] / face[2] + w[1] / face[5] + w[2] / face[8]);
+                        if (zp <= ${near} || ${far} <= zp) continue;
+
+                        /* check z-buffer */
+                        if (zp < depth_min) {
+                            depth_min = zp;
+                            face_index_min = fn;
+                            for (int k = 0; k < 3; k++) weight_min[k] = w[k];
+                            if (${return_depth}) for (int k = 0; k < 9; k++) face_inv_min[k] = face_inv[k];
+                        }
+                    }
+
+                    /* set to global memory */
+                    if (0 <= face_index_min) {
+                        depth_map[i] = depth_min;
+                        face_index_map[i] = face_index_min;
+                        for (int k = 0; k < 3; k++) weight_map[3 * i + k] = weight_min[k];
+                        if (${return_depth}) for (int k = 0; k < 9; k++) face_inv_map[9 * i + k] = face_inv_min[k];
+                    }
+                ''').substitute(
+                    num_faces=self.num_faces,
+                    image_size=self.image_size,
+                    near=self.near,
+                    far=self.far,
+                    return_rgb=int(self.return_rgb),
+                    return_alpha=int(self.return_alpha),
+                    return_depth=int(self.return_depth),
+                ),
+                'function',
+            )(loop, self.faces, faces_inv, self.face_index_map, self.weight_map, self.depth_map, self.face_inv_map)
 
     def forward_texture_sampling(self):
         # inputs:

@@ -9,6 +9,7 @@ import numpy as np
 import scipy.misc
 
 import neural_renderer
+import utils
 
 
 class TestRasterizeDepth(unittest.TestCase):
@@ -16,11 +17,7 @@ class TestRasterizeDepth(unittest.TestCase):
         """Whether a silhouette by neural renderer matches that by Blender."""
 
         # load teapot
-        vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
-        vertices = vertices[None, :, :]
-        faces = faces[None, :, :]
-        vertices = chainer.cuda.to_gpu(vertices)
-        faces = chainer.cuda.to_gpu(faces)
+        vertices, faces, _ = utils.load_teapot_batch()
 
         # create renderer
         renderer = neural_renderer.Renderer()
@@ -29,7 +26,7 @@ class TestRasterizeDepth(unittest.TestCase):
 
         images = renderer.render_depth(vertices, faces)
         images = images.data.get()
-        image = images[0]
+        image = images[2]
         image = image != image.max()
 
         # load reference image by blender
@@ -39,13 +36,9 @@ class TestRasterizeDepth(unittest.TestCase):
 
         chainer.testing.assert_allclose(ref, image)
 
-    def test_forward_case2(self):
+    def tesst_forward_case2(self):
         # load teapot
-        vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
-        vertices = vertices[None, :, :]
-        faces = faces[None, :, :]
-        vertices = chainer.cuda.to_gpu(vertices)
-        faces = chainer.cuda.to_gpu(faces)
+        vertices, faces, _ = utils.load_teapot_batch()
 
         # create renderer
         renderer = neural_renderer.Renderer()
@@ -54,11 +47,16 @@ class TestRasterizeDepth(unittest.TestCase):
 
         images = renderer.render_depth(vertices, faces)
         images = images.data.get()
-        image = images[0]
+        image = images[2]
         image[image == image.max()] = image.min()
-        scipy.misc.toimage(image).save('./tests/data/test_depth.png')
+        image = (image - image.min()) / (image.max() - image.min())
 
-    def test_backward_case1(self):
+        ref = scipy.misc.imread('./tests/data/test_depth.png')
+        ref = ref.astype('float32') / 255.
+
+        chainer.testing.assert_allclose(image, ref, atol=1e-2)
+
+    def tesst_backward_case1(self):
         vertices = [
             [-0.9, -0.9, 2.],
             [-0.8, 0.8, 1.],
@@ -71,10 +69,12 @@ class TestRasterizeDepth(unittest.TestCase):
         renderer.perspective = False
         renderer.camera_mode = 'none'
 
-        vertices = chainer.Variable(cp.array(vertices, 'float32'))
+        vertices = cp.array(vertices, 'float32')
         faces = cp.array(faces, 'int32')
+        vertices, faces = utils.to_minibatch((vertices, faces))
+        vertices = chainer.Variable(vertices)
 
-        images = renderer.render_depth(vertices[None, :, :], faces[None, :, :])
+        images = renderer.render_depth(vertices, faces)
         loss = cf.sum(cf.square(images[0, 15, 20] - 1))
         loss.backward()
         grad = vertices.grad.get()
@@ -85,7 +85,7 @@ class TestRasterizeDepth(unittest.TestCase):
                 eps = 1e-3
                 vertices2 = vertices.data.copy()
                 vertices2[i, j] += eps
-                images = renderer.render_depth(vertices2[None, :, :], faces[None, :, :])
+                images = renderer.render_depth(vertices2, faces)
                 loss2 = cf.sum(cf.square(images[0, 15, 20] - 1))
                 grad2[i, j] = ((loss2 - loss) / eps).data.get()
 

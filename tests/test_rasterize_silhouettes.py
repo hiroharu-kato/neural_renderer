@@ -8,6 +8,7 @@ import cupy as cp
 import scipy.misc
 
 import neural_renderer
+import utils
 
 
 class TestRasterizeSilhouettes(unittest.TestCase):
@@ -15,11 +16,7 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         """Whether a silhouette by neural renderer matches that by Blender."""
 
         # load teapot
-        vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
-        vertices = vertices[None, :, :]
-        faces = faces[None, :, :]
-        vertices = chainer.cuda.to_gpu(vertices)
-        faces = chainer.cuda.to_gpu(faces)
+        vertices, faces, _ = utils.load_teapot_batch()
 
         # create renderer
         renderer = neural_renderer.Renderer()
@@ -28,7 +25,7 @@ class TestRasterizeSilhouettes(unittest.TestCase):
 
         images = renderer.render_silhouettes(vertices, faces)
         images = images.data.get()
-        image = images[0]
+        image = images[2]
 
         # load reference image by blender
         ref = scipy.misc.imread('./tests/data/teapot_blender.png')
@@ -58,13 +55,15 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         renderer.anti_aliasing = False
         renderer.perspective = False
 
-        vertices = chainer.Variable(cp.array(vertices, 'float32'))
+        vertices = cp.array(vertices, 'float32')
         faces = cp.array(faces, 'int32')
-        images = renderer.render_silhouettes(vertices[None, :, :], faces[None, :, :])
+        grad_ref = cp.array(grad_ref, 'float32')
+        vertices, faces, grad_ref = utils.to_minibatch((vertices, faces, grad_ref))
+        vertices = chainer.Variable(vertices)
+        images = renderer.render_silhouettes(vertices, faces)
         loss = cf.sum(cf.absolute(images[:, pyi, pxi] - 1))
         loss.backward()
 
-        grad_ref = cp.array(grad_ref, 'float32')
         chainer.testing.assert_allclose(vertices.grad, grad_ref, rtol=1e-2)
 
     def test_backward_case2(self):
@@ -88,13 +87,15 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         renderer.anti_aliasing = False
         renderer.perspective = False
 
-        vertices = chainer.Variable(cp.array(vertices, 'float32'))
+        vertices = cp.array(vertices, 'float32')
         faces = cp.array(faces, 'int32')
-        images = renderer.render_silhouettes(vertices[None, :, :], faces[None, :, :])
+        grad_ref = cp.array(grad_ref, 'float32')
+        vertices, faces, grad_ref = utils.to_minibatch((vertices, faces, grad_ref))
+        vertices = chainer.Variable(vertices)
+        images = renderer.render_silhouettes(vertices, faces)
         loss = cf.sum(cf.absolute(images[:, pyi, pxi]))
         loss.backward()
 
-        grad_ref = cp.array(grad_ref, 'float32')
         chainer.testing.assert_allclose(vertices.grad, grad_ref, rtol=1e-2)
 
 

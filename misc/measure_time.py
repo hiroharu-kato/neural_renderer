@@ -12,6 +12,7 @@ def run():
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--filename_input', type=str, default='./examples/data/teapot.obj')
     parser.add_argument('-bs', '--batch_size', type=int, default=1)
+    parser.add_argument('-is', '--image_size', type=int, default=256)
     parser.add_argument('-g', '--gpu', type=int, default=0)
     args = parser.parse_args()
 
@@ -41,6 +42,7 @@ def run():
 
     # create renderer
     renderer = neural_renderer.Renderer()
+    renderer.image_size = args.image_size
 
     # draw object
     times_forward = []
