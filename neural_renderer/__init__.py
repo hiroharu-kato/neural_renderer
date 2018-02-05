@@ -7,9 +7,8 @@ from look_at import look_at
 from mesh import Mesh
 from optimizers import Adam
 from perspective import perspective
-from rasterize import rasterize
-from rasterize_silhouettes import rasterize_silhouettes
 from renderer import Renderer
 from vertices_to_faces import vertices_to_faces
+from rasterize import rasterize_rgbad, rasterize, rasterize_silhouettes, rasterize_depth
 
 __version__ = '1.0.0'

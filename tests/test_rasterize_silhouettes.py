@@ -5,7 +5,6 @@ import chainer.functions as cf
 import chainer.gradient_check
 import chainer.testing
 import cupy as cp
-import numpy as np
 import scipy.misc
 
 import neural_renderer
@@ -48,6 +47,11 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         faces = [[0, 1, 2]]
         pxi = 35
         pyi = 25
+        grad_ref = [
+            [1.6725862, -0.26021874, 0.],
+            [1.41986704, -1.64284933, 0.],
+            [0., 0., 0.],
+        ]
 
         renderer = neural_renderer.Renderer()
         renderer.image_size = 64
@@ -60,20 +64,8 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         loss = cf.sum(cf.absolute(images[:, pyi, pxi] - 1))
         loss.backward()
 
-        for i in range(3):
-            for j in range(2):
-                axis = 'x' if j == 0 else 'y'
-                vertices2 = cp.copy(vertices.data)
-                if vertices.grad[i, j] != 0.0:
-                    vertices2[i, j] -= 1. / vertices.grad[i, j]
-                    images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
-                    image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
-                else:
-                    image = np.zeros((64, 64, 3))
-                image[pyi, pxi] = [1, 0, 0]
-                ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case1_v%d_%s.png' % (i, axis))
-                ref = ref.astype('float32') / 255
-                chainer.testing.assert_allclose(ref, image)
+        grad_ref = cp.array(grad_ref, 'float32')
+        chainer.testing.assert_allclose(vertices.grad, grad_ref, rtol=1e-2)
 
     def test_backward_case2(self):
         """Backward if non-zero gradient is on a face."""
@@ -85,6 +77,11 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         faces = [[0, 1, 2]]
         pyi = 40
         pxi = 50
+        grad_ref = [
+            [0.98646867, 1.04628897, 0.],
+            [-1.03415668, - 0.10403691, 0.],
+            [3.00094461, - 1.55173182, 0.],
+        ]
 
         renderer = neural_renderer.Renderer()
         renderer.image_size = 64
@@ -97,20 +94,8 @@ class TestRasterizeSilhouettes(unittest.TestCase):
         loss = cf.sum(cf.absolute(images[:, pyi, pxi]))
         loss.backward()
 
-        for i in range(3):
-            for j in range(2):
-                axis = 'x' if j == 0 else 'y'
-                vertices2 = cp.copy(vertices.data)
-                if vertices.grad[i, j] != 0.0:
-                    vertices2[i, j] -= 1. / vertices.grad[i, j]
-                    images = renderer.render_silhouettes(vertices2[None, :, :], faces[None, :, :])
-                    image = np.tile(images[0].data.get()[:, :, None], (1, 1, 3))
-                else:
-                    image = np.zeros((64, 64, 3))
-                image[pyi, pxi] = [1, 0, 0]
-                ref = scipy.misc.imread('./tests/data/rasterize_silhouettes_case2_v%d_%s.png' % (i, axis))
-                ref = ref.astype('float32') / 255
-                chainer.testing.assert_allclose(ref, image)
+        grad_ref = cp.array(grad_ref, 'float32')
+        chainer.testing.assert_allclose(vertices.grad, grad_ref, rtol=1e-2)
 
 
 if __name__ == '__main__':

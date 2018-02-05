@@ -52,6 +52,26 @@ class Renderer(object):
         images = neural_renderer.rasterize_silhouettes(faces, self.image_size, self.anti_aliasing)
         return images
 
+    def render_depth(self, vertices, faces):
+        # fill back
+        if self.fill_back:
+            faces = cf.concat((faces, faces[:, :, ::-1]), axis=1).data
+
+        # viewpoint transformation
+        if self.camera_mode == 'look_at':
+            vertices = neural_renderer.look_at(vertices, self.eye)
+        elif self.camera_mode == 'look':
+            vertices = neural_renderer.look(vertices, self.eye, self.camera_direction)
+
+        # perspective transformation
+        if self.perspective:
+            vertices = neural_renderer.perspective(vertices, angle=self.viewing_angle)
+
+        # rasterization
+        faces = neural_renderer.vertices_to_faces(vertices, faces)
+        images = neural_renderer.rasterize_depth(faces, self.image_size, self.anti_aliasing)
+        return images
+
     def render(self, vertices, faces, textures):
         # fill back
         if self.fill_back:
