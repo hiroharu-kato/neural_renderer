@@ -36,7 +36,7 @@ class TestRasterizeDepth(unittest.TestCase):
 
         chainer.testing.assert_allclose(ref, image)
 
-    def tesst_forward_case2(self):
+    def test_forward_case2(self):
         # load teapot
         vertices, faces, _ = utils.load_teapot_batch()
 
@@ -53,10 +53,11 @@ class TestRasterizeDepth(unittest.TestCase):
 
         ref = scipy.misc.imread('./tests/data/test_depth.png')
         ref = ref.astype('float32') / 255.
+        scipy.misc.toimage(image).save('../tmp/test_depth.png')
 
         chainer.testing.assert_allclose(image, ref, atol=1e-2)
 
-    def tesst_backward_case1(self):
+    def test_backward_case1(self):
         vertices = [
             [-0.9, -0.9, 2.],
             [-0.8, 0.8, 1.],

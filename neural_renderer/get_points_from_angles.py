@@ -3,9 +3,9 @@ import math
 import chainer
 
 
-def get_points_from_angles(distance, elevation, azimuth, digrees=True):
+def get_points_from_angles(distance, elevation, azimuth, degrees=True):
     if isinstance(distance, float) or isinstance(distance, int):
-        if digrees:
+        if degrees:
             elevation = math.radians(elevation)
             azimuth = math.radians(azimuth)
         return (
@@ -14,7 +14,7 @@ def get_points_from_angles(distance, elevation, azimuth, digrees=True):
             -distance * math.cos(elevation) * math.cos(azimuth))
     else:
         xp = chainer.cuda.get_array_module(distance)
-        if digrees:
+        if degrees:
             elevation = xp.radians(elevation)
             azimuth = xp.radians(azimuth)
         return xp.stack([

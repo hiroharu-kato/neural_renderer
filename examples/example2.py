@@ -37,11 +37,11 @@ class Model(chainer.Link):
             renderer = neural_renderer.Renderer()
             self.renderer = renderer
 
-    def to_gpu(self):
-        super(Model, self).to_gpu()
-        self.faces = chainer.cuda.to_gpu(self.faces)
-        self.textures = chainer.cuda.to_gpu(self.textures)
-        self.image_ref = chainer.cuda.to_gpu(self.image_ref)
+    def to_gpu(self, device=None):
+        super(Model, self).to_gpu(device)
+        self.faces = chainer.cuda.to_gpu(self.faces, device)
+        self.textures = chainer.cuda.to_gpu(self.textures, device)
+        self.image_ref = chainer.cuda.to_gpu(self.image_ref, device)
 
     def __call__(self):
         self.renderer.eye = neural_renderer.get_points_from_angles(2.732, 0, 90)

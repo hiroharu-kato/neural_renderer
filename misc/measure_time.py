@@ -13,6 +13,7 @@ def run():
     parser.add_argument('-i', '--filename_input', type=str, default='./examples/data/teapot.obj')
     parser.add_argument('-bs', '--batch_size', type=int, default=1)
     parser.add_argument('-is', '--image_size', type=int, default=256)
+    parser.add_argument('-us', '--unsafe', type=int, default=0)
     parser.add_argument('-g', '--gpu', type=int, default=0)
     args = parser.parse_args()
 

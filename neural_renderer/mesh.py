@@ -22,9 +22,9 @@ class Mesh(chainer.Link):
             self.textures = chainer.Parameter(init, shape)
             self.texture_size = texture_size
 
-    def to_gpu(self):
-        super(Mesh, self).to_gpu()
-        self.faces = chainer.cuda.to_gpu(self.faces)
+    def to_gpu(self, device=None):
+        super(Mesh, self).to_gpu(device)
+        self.faces = chainer.cuda.to_gpu(self.faces, device)
 
     def get_batch(self, batch_size):
         # broadcast for minibatch

@@ -41,6 +41,6 @@ def look_at(vertices, eye, at=None, up=None):
     if vertices.shape != eye.shape:
         eye = cf.broadcast_to(eye[:, None, :], vertices.shape)
     vertices = vertices - eye
-    vertices = cf.batch_matmul(vertices, r, transb=True)
+    vertices = cf.matmul(vertices, r, transb=True)
 
     return vertices

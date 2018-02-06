@@ -44,11 +44,11 @@ class Model(chainer.Link):
             renderer.eye = self.camera_position
             self.renderer = renderer
 
-    def to_gpu(self):
-        super(Model, self).to_gpu()
-        self.faces = chainer.cuda.to_gpu(self.faces)
-        self.vertices = chainer.cuda.to_gpu(self.vertices)
-        self.textures = chainer.cuda.to_gpu(self.textures)
+    def to_gpu(self, device=None):
+        super(Model, self).to_gpu(device)
+        self.faces = chainer.cuda.to_gpu(self.faces, device)
+        self.vertices = chainer.cuda.to_gpu(self.vertices, device)
+        self.textures = chainer.cuda.to_gpu(self.textures, device)
         if self.image_ref is not None:
             self.image_ref = chainer.cuda.to_gpu(self.image_ref)
 

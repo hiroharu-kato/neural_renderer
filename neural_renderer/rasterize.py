@@ -1,3 +1,4 @@
+import os
 import string
 
 import chainer
@@ -9,6 +10,10 @@ DEFAULT_NEAR = 0.1
 DEFAULT_FAR = 100
 DEFAULT_EPS = 1e-4
 DEFAULT_BACKGROUND_COLOR = (0, 0, 0)
+USE_UNSAFE_IMPLEMENTATION = False
+
+if 'NEURAL_RENDERER_UNSAFE' in os.environ and int(os.environ['NEURAL_RENDERER_UNSAFE']):
+    USE_UNSAFE_IMPLEMENTATION = True
 
 
 class Rasterize(chainer.Function):
@@ -94,8 +99,8 @@ class Rasterize(chainer.Function):
         #   if alpha: face_index_map, weight_map, depth_map
         #   if depth: face_index_map, weight_map, depth_map, face_inv_map
 
-        if False:
-            # very fast, but unable to run on Pascal GPUs
+        if USE_UNSAFE_IMPLEMENTATION:
+            # very fast, but unable to run on some environments
 
             # for each face
             loop = self.xp.arange(self.batch_size * self.num_faces).astype('int32')
@@ -198,17 +203,23 @@ class Rasterize(chainer.Function):
                             bool locked = false;
                             do {
                                 if (locked = atomicCAS(&lock[index], 0, 1) == 0) {
-                                    if (zp < depth_map[index]) {
-                                        depth_map[index] = zp;
-                                        face_index_map[index] = fn;
-                                        for (int k = 0; k < 3; k++) weight_map[3 * index + pi[k]] = w[k];
+                                    if (zp < atomicAdd(&depth_map[index], 0)) {
+                                        float record = 0;
+                                        atomicExch(&depth_map[index], zp);
+                                        atomicExch(&face_index_map[index], fn);
+                                        for (int k = 0; k < 3; k++) atomicExch(&weight_map[3 * index + pi[k]], w[k]);
                                         if (${return_depth}) {
                                             for (int k = 0; k < 3; k++) for (int l = 0; l < 3; l++)
-                                                face_inv_map[9 * index + 3 * pi[l] + k] = face_inv[3 * l + k];
+                                                atomicExch(
+                                                    &face_inv_map[9 * index + 3 * pi[l] + k], face_inv[3 * l + k]);
                                         }
+                                        record += atomicAdd(&depth_map[index], 0.);
+                                        record += atomicAdd(&face_index_map[index], 0.);
+                                        if (0 < record) atomicExch(&lock[index], 0);
+                                    } else {
+                                        atomicExch(&lock[index], 0);
                                     }
                                 }
-                                if (locked) atomicExch(&lock[index], 0);
                             } while (!locked);
                         }
                     }
@@ -1041,3 +1052,8 @@ def rasterize_depth(
 
     """
     return rasterize_rgbad(faces, None, image_size, anti_aliasing, near, far, eps, None, False, False, True)['depth']
+
+
+def use_unsafe_rasterizer(flag):
+    global USE_UNSAFE_IMPLEMENTATION
+    USE_UNSAFE_IMPLEMENTATION = flag

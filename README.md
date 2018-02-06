@@ -33,7 +33,7 @@ python ./examples/example4.py
 
 ## Example 2: Optimizing vertices
 
-Transforming the silhouette of a teapot into a rectangle. The loss function is the difference bettween the rendered image and the reference image.
+Transforming the silhouette of a teapot into a rectangle. The loss function is the difference between the rendered image and the reference image.
 
 Reference image, optimization, and the result.
 
