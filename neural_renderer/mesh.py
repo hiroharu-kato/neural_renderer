@@ -5,12 +5,12 @@ import neural_renderer
 
 
 class Mesh(chainer.Link):
-    def __init__(self, filename_obj, texture_size=4):
+    def __init__(self, filename_obj, texture_size=4, normalization=True):
         super(Mesh, self).__init__()
 
         with self.init_scope():
             # load .obj
-            vertices, faces = neural_renderer.load_obj(filename_obj)
+            vertices, faces = neural_renderer.load_obj(filename_obj, normalization)
             self.vertices = chainer.Parameter(vertices)
             self.faces = faces
             self.num_vertices = self.vertices.shape[0]
