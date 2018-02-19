@@ -8,7 +8,7 @@ def perspective(vertices, angle=30.):
     if isinstance(angle, float) or isinstance(angle, int):
         angle = chainer.Variable(xp.array(angle, 'float32'))
     angle = angle / 180. * 3.1416
-    angle = cf.broadcast_to(angle[None], (vertices.shape[0], ))
+    angle = cf.broadcast_to(angle[None], (vertices.shape[0],))
 
     width = cf.tan(angle)
     width = cf.broadcast_to(width[:, None], vertices.shape[:2])

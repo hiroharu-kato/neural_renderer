@@ -1,4 +1,4 @@
-# Neural 3D Mesh Renderer
+# Neural 3D Mesh Renderer (CVPR 2018)
 
 This is code for the paper [Neural 3D Mesh Renderer](http://hiroharu-kato.com/projects_en/neural_renderer.html) by Hiroharu Kato, Yoshitaka Ushiku, and Tatsuya Harada.
 
@@ -59,10 +59,10 @@ From left to right: reference image, initial state, and optimization process.
 ## Citation
 
 ```
-@article{kato2017renderer,
-  title={Neural 3D Mesh Renderer},
-  author={Kato, Hiroharu and Ushiku, Yoshitaka and Harada, Tatsuya},
-  journal={arXiv:1711.07566},
-  year={2017}
+@InProceedings{kato2018renderer
+    title={Neural 3D Mesh Renderer},
+    author={Kato, Hiroharu and Ushiku, Yoshitaka and Harada, Tatsuya},
+    booktitle={The IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+    year={2018}
 }
 ```
