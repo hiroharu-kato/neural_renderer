@@ -15,4 +15,4 @@ def save_obj(filename, vertices, faces):
             f.write('v  %.4f %.4f %.4f\n' % (vertex[0], vertex[1], vertex[2]))
         f.write('\n')
         for face in faces:
-            f.write('f  %d %d %d\n' % (face[0], face[1], face[2]))
+            f.write('f  %d %d %d\n' % (face[0] + 1, face[1] + 1, face[2] + 1))
