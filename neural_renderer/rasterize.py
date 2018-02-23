@@ -456,7 +456,10 @@ class Rasterize(chainer.Function):
 
         background_color = self.xp.array(self.background_color, 'float32')
         mask = (0 <= self.face_index_map).astype('float32')[:, :, :, None]
-        self.rgb_map = self.rgb_map * mask + (1 - mask) * background_color[None, None, None, :]
+        if background_color.ndim == 1:
+            self.rgb_map = self.rgb_map * mask + (1 - mask) * background_color[None, None, None, :]
+        elif background_color.ndim == 2:
+            self.rgb_map = self.rgb_map * mask + (1 - mask) * background_color[:, None, None, :]
 
     def forward_gpu(self, inputs):
         # get input information
