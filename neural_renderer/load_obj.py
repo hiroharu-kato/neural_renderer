@@ -86,7 +86,7 @@ def load_textures(filename_obj, filename_texture, texture_size):
         ),
         'function',
     )(loop, image, faces, textures)
-    return textures
+    return textures.get()
 
 
 def load_obj(filename_obj, normalization=True, filename_texture=None, texture_size=4):

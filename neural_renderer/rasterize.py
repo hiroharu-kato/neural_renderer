@@ -397,8 +397,12 @@ class Rasterize(chainer.Function):
 
                     /* get texture index (float) */
                     float texture_index_float[3];
-                    for (int k = 0; k < 3; k++)
-                        texture_index_float[k] = weight[k] * (ts - 1 - ${eps}) * (depth / (face[3 * k + 2]));
+                    for (int k = 0; k < 3; k++) {
+                        float tif = weight[k] * (ts - 1) * (depth / (face[3 * k + 2]));
+                        tif = max(tif, 0.);
+                        tif = min(tif, ts - 1 - ${eps});
+                        texture_index_float[k] = tif;
+                    }
 
                     /* blend */
                     float new_pixel[3] = {0, 0, 0};
