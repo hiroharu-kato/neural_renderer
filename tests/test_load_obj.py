@@ -1,6 +1,8 @@
 import unittest
 
+import chainer
 import numpy as np
+import scipy.misc
 
 import neural_renderer
 
@@ -33,6 +35,26 @@ class TestCore(unittest.TestCase):
         vertices, faces = neural_renderer.load_obj('./tests/data/teapot.obj')
         assert (faces.shape[0] == 2464)
         assert (vertices.shape[0] == 1292)
+
+    def test_texture(self):
+        render = neural_renderer.Renderer()
+
+        vertices, faces, textures = neural_renderer.load_obj('./tests/data/1cde62b063e14777c9152a706245d48/model.obj')
+        vertices = chainer.cuda.to_gpu(vertices)
+        faces = chainer.cuda.to_gpu(faces)
+        textures = chainer.cuda.to_gpu(textures)
+        render.eye = neural_renderer.get_points_from_angles(2, 15, 30)
+        images = render.render(vertices[None, :, :], faces[None, :, :], textures[None, :, :, :, :, :]).data.get()
+        scipy.misc.imsave('./tests/data/car.png', scipy.misc.toimage(images[0]))
+
+        vertices, faces, textures = neural_renderer.load_obj(
+            './tests/data/4e49873292196f02574b5684eaec43e9/model.obj', texture_size=16)
+        vertices = chainer.cuda.to_gpu(vertices)
+        faces = chainer.cuda.to_gpu(faces)
+        textures = chainer.cuda.to_gpu(textures)
+        render.eye = neural_renderer.get_points_from_angles(2, 15, -90)
+        images = render.render(vertices[None, :, :], faces[None, :, :], textures[None, :, :, :, :, :]).data.get()
+        scipy.misc.imsave('./tests/data/display.png', scipy.misc.toimage(images[0]))
 
 
 if __name__ == '__main__':
