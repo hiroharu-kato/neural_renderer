@@ -82,7 +82,7 @@ def load_textures(filename_obj, filename_mtl, texture_size):
         filename_texture = os.path.join(os.path.dirname(filename_obj), filename_texture)
         image = skimage.io.imread(filename_texture).astype('float32') / 255.
         image = chainer.cuda.to_gpu(image)
-        image = image[::-1, ::-1]
+        image = image[::-1, ::1]
         is_update = np.array(material_names) == material_name
         is_update = chainer.cuda.to_gpu(is_update).astype('int32')
 
@@ -111,17 +111,27 @@ def load_textures(filename_obj, filename_mtl, texture_size):
                     (face[2 * 0 + 0] * dim0 + face[2 * 1 + 0] * dim1 + face[2 * 2 + 0] * dim2) * (${image_width} - 1));
                 const float pos_y = (
                     (face[2 * 0 + 1] * dim0 + face[2 * 1 + 1] * dim1 + face[2 * 2 + 1] * dim2) * (${image_height} - 1));
-                const float weight_x1 = pos_x - (int)pos_x;
-                const float weight_x0 = 1 - weight_x1;
-                const float weight_y1 = pos_y - (int)pos_y;
-                const float weight_y0 = 1 - weight_y1;
-                for (int k = 0; k < 3; k++) {
-                    float c = 0;
-                    c += image[((int)pos_y * ${image_width} + (int)pos_x) * 3 + k] * (weight_x0 * weight_y0);
-                    c += image[((int)(pos_y + 1) * ${image_width} + (int)pos_x) * 3 + k] * (weight_x0 * weight_y1);
-                    c += image[((int)pos_y * ${image_width} + ((int)pos_x) + 1) * 3 + k] * (weight_x1 * weight_y0);
-                    c += image[((int)(pos_y + 1)* ${image_width} + ((int)pos_x) + 1) * 3 + k] * (weight_x1 * weight_y1);
-                    texture[k] = c;
+                if (1) {
+                    /* bilinear sampling */
+                    const float weight_x1 = pos_x - (int)pos_x;
+                    const float weight_x0 = 1 - weight_x1;
+                    const float weight_y1 = pos_y - (int)pos_y;
+                    const float weight_y0 = 1 - weight_y1;
+                    for (int k = 0; k < 3; k++) {
+                        float c = 0;
+                        c += image[((int)pos_y * ${image_width} + (int)pos_x) * 3 + k] * (weight_x0 * weight_y0);
+                        c += image[((int)(pos_y + 1) * ${image_width} + (int)pos_x) * 3 + k] * (weight_x0 * weight_y1);
+                        c += image[((int)pos_y * ${image_width} + ((int)pos_x) + 1) * 3 + k] * (weight_x1 * weight_y0);
+                        c += image[((int)(pos_y + 1)* ${image_width} + ((int)pos_x) + 1) * 3 + k] * (weight_x1 * weight_y1);
+                        texture[k] = c;
+                    }
+                } else {
+                    /* nearest neighbor */
+                    const int pos_xi = round(pos_x);
+                    const int pos_yi = round(pos_y);
+                    for (int k = 0; k < 3; k++) {
+                        texture[k] = image[(pos_yi * ${image_width} + pos_xi) * 3 + k];
+                    }
                 }
             ''').substitute(
                 texture_size=texture_size,
@@ -133,7 +143,7 @@ def load_textures(filename_obj, filename_mtl, texture_size):
     return textures.get()
 
 
-def load_obj(filename_obj, normalization=True, texture_size=4):
+def load_obj(filename_obj, normalization=True, texture_size=4, load_texture=False):
     """
     Load Wavefront .obj file.
     This function only supports vertices (v x x x) and faces (f x x x).
@@ -165,10 +175,13 @@ def load_obj(filename_obj, normalization=True, texture_size=4):
 
     # load textures
     textures = None
-    for line in open(filename_obj).readlines():
-        if line.startswith('mtllib'):
-            filename_mtl = os.path.join(os.path.dirname(filename_obj), line.split()[1])
-            textures = load_textures(filename_obj, filename_mtl, texture_size)
+    if load_texture:
+        for line in open(filename_obj).readlines():
+            if line.startswith('mtllib'):
+                filename_mtl = os.path.join(os.path.dirname(filename_obj), line.split()[1])
+                textures = load_textures(filename_obj, filename_mtl, texture_size)
+        if textures is None:
+            raise Exception('Failed to load textures.')
 
     # normalize into a unit cube centered zero
     if normalization:
@@ -177,7 +190,7 @@ def load_obj(filename_obj, normalization=True, texture_size=4):
         vertices *= 2
         vertices -= vertices.max(0)[None, :] / 2
 
-    if textures is None:
-        return vertices, faces
-    else:
+    if load_texture:
         return vertices, faces, textures
+    else:
+        return vertices, faces
