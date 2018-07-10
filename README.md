@@ -13,6 +13,10 @@ This repository only contains the core component and simple examples. Related re
     * [2D-to-3D style transfer](https://github.com/hiroharu-kato/style_transfer_3d)
     * [3D DeepDream](https://github.com/hiroharu-kato/deep_dream_3d)
 
+## For PyTorch users
+
+This code is written in Chainer. However, [Angjoo Kanazawa provides PyTorch wrapper of our renderer](https://github.com/akanazawa/cmr) used in their work "Learning Category-Specific Mesh Reconstruction from Image Collections" (ECCV 2018). Please check it.
+
 ## Installation
 ```
 sudo python setup.py install
