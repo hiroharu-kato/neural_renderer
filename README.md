@@ -15,7 +15,12 @@ This repository only contains the core component and simple examples. Related re
 
 ## For PyTorch users
 
-This code is written in Chainer. However, [Angjoo Kanazawa provides PyTorch wrapper of our renderer](https://github.com/akanazawa/cmr) used in their work "Learning Category-Specific Mesh Reconstruction from Image Collections" (ECCV 2018). Please check it.
+This code is written in Chainer. For PyTorch users, there are two options.
+
+* [Angjoo Kanazawa & Shubham Tulsiani provides PyTorch wrapper of our renderer](https://github.com/akanazawa/cmr) used in their work "Learning Category-Specific Mesh Reconstruction from Image Collections" (ECCV 2018).
+* [Nikos Kolotouros provides PyTorch re-implementation of our renderer](https://github.com/daniilidis-group/neural_renderer), which does not require installation of Chainer / CuPy.
+
+I'm grateful to these researchers for writing and releasing their codes.
 
 ## Installation
 ```
