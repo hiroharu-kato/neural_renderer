@@ -97,12 +97,13 @@ def load_textures(filename_obj, filename_mtl, texture_size):
                 float dim0 = ((i / (ts * ts)) % ts) / (ts - 1.) ;
                 float dim1 = ((i / ts) % ts) / (ts - 1.);
                 float dim2 = (i % ts) / (ts - 1.);
-                if (1 < dim0 + dim1 + dim2) {
-                    float sum = dim0 + dim1 + dim2;
-                    dim0 /= sum;
-                    dim1 /= sum;
-                    dim2 /= sum;
-                }
+
+                // sum(dim[k]) -> 1
+                float sum = dim0 + dim1 + dim2;
+                dim0 /= sum;
+                dim1 /= sum;
+                dim2 /= sum;
+
                 const float* face = &faces[fn * 3 * 2];
                 float* texture = &textures[i * 3];
                 if (is_update[fn] == 0) return;
