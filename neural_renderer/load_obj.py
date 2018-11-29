@@ -104,8 +104,8 @@ def load_textures(filename_obj, filename_mtl, texture_size):
                 dim1 /= sum;
                 dim2 /= sum;
 
-                const float* face = &faces[fn * 3 * 2];
-                float* texture = &textures[i * 3];
+                float* face = (float*)&faces[fn * 3 * 2];
+                float* texture = (float*)&textures[i * 3];
                 if (is_update[fn] == 0) return;
 
                 const float pos_x = (

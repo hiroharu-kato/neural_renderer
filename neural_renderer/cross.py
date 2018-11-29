@@ -27,9 +27,9 @@ class Cross(chainer.Function):
             'int32 j, raw T a, raw T b',
             'raw T c',
             '''
-                float* ap = &a[j * 3];
-                float* bp = &b[j * 3];
-                float* cp = &c[j * 3];
+                float* ap = (float*)&a[j * 3];
+                float* bp = (float*)&b[j * 3];
+                float* cp = (float*)&c[j * 3];
                 cp[0] = ap[1] * bp[2] - ap[2] * bp[1];
                 cp[1] = ap[2] * bp[0] - ap[0] * bp[2];
                 cp[2] = ap[0] * bp[1] - ap[1] * bp[0];

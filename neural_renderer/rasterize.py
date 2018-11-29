@@ -114,7 +114,7 @@ class Rasterize(chainer.Function):
                     const int bn = i / ${num_faces};
                     const int fn = i % ${num_faces};
                     const int is = ${image_size};
-                    const float* face = &faces[i * 9];
+                    const float* face = (float*)&faces[i * 9];
 
                     /* return if backside */
                     if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0])) return;
@@ -245,8 +245,8 @@ class Rasterize(chainer.Function):
                 string.Template('''
                     /* face[v012][RGB] */
                     const int is = ${image_size};
-                    const float* face = &faces[i * 9];
-                    float* face_inv_g = &faces_inv[i * 9];
+                    const float* face = (float*)&faces[i * 9];
+                    float* face_inv_g = (float*)&faces_inv[i * 9];
 
                     /* return if backside */
                     if ((face[7] - face[1]) * (face[3] - face[0]) < (face[4] - face[1]) * (face[6] - face[0]))
@@ -279,9 +279,8 @@ class Rasterize(chainer.Function):
             # for each pixel
             loop = self.xp.arange(self.batch_size * self.image_size * self.image_size).astype('int32')
             chainer.cuda.elementwise(
-                'int32 _, raw float32 faces, raw float32 faces_inv, raw int32 face_index_map, ' +
-                'raw float32 weight_map, raw float32 depth_map, raw float32 face_inv_map',
-                '',
+                'int32 _, raw float32 faces, raw float32 faces_inv',
+                'raw int32 face_index_map, raw float32 weight_map, raw float32 depth_map, raw float32 face_inv_map',
                 string.Template('''
                     const int is = ${image_size};
                     const int nf = ${num_faces};
@@ -292,8 +291,8 @@ class Rasterize(chainer.Function):
                     const float yp = (2. * yi + 1 - is) / is;
                     const float xp = (2. * xi + 1 - is) / is;
 
-                    float* face = &faces[bn * nf * 9] - 9;
-                    float* face_inv = &faces_inv[bn * nf * 9] - 9;
+                    float* face = (float*)&faces[bn * nf * 9] - 9;
+                    float* face_inv = (float*)&faces_inv[bn * nf * 9] - 9;
                     float depth_min = ${far};
                     int face_index_min = -1;
                     float weight_min[3];
@@ -387,13 +386,13 @@ class Rasterize(chainer.Function):
                     const int bn = i / (${image_size} * ${image_size});
                     const int nf = ${num_faces};
                     const int ts = ${texture_size};
-                    const float* face = &faces[face_index * 9];
-                    const float* texture = &textures[(bn * nf + face_index) * ts * ts * ts * 3];
-                    float* pixel = &rgb_map[i * 3];
-                    const float* weight = &weight_map[i * 3];
+                    const float* face = (float*)&faces[face_index * 9];
+                    const float* texture = (float*)&textures[(bn * nf + face_index) * ts * ts * ts * 3];
+                    float* pixel = (float*)&rgb_map[i * 3];
+                    const float* weight = (float*)&weight_map[i * 3];
                     const float depth = depth_map[i];
-                    int* sampling_indices = &sampling_index_map[i * 8];
-                    float* sampling_weights = &sampling_weight_map[i * 8];
+                    int* sampling_indices = (int*)&sampling_index_map[i * 8];
+                    float* sampling_weights = (float*)&sampling_weight_map[i * 8];
 
                     /* get texture index (float) */
                     float texture_index_float[3];
@@ -528,13 +527,13 @@ class Rasterize(chainer.Function):
         loop = self.xp.arange(self.batch_size * self.num_faces).astype('int32')
         chainer.cuda.elementwise(
             'int32 _, raw float32 faces, raw int32 face_index_map, raw float32 rgb_map, raw float32 alpha_map, ' +
-            'raw float32 grad_rgb_map, raw float32 grad_alpha_map, raw float32 grad_faces',
-            '',
+            'raw float32 grad_rgb_map, raw float32 grad_alpha_map',
+            'raw float32 grad_faces',
             string.Template('''
                 const int bn = i / ${num_faces};
                 const int fn = i % ${num_faces};
                 const int is = ${image_size};
-                const float* face = &faces[i * 9];
+                const float* face = (float*)&faces[i * 9];
                 float grad_face[9] = {};
 
                 /* check backside */
@@ -597,8 +596,8 @@ class Rasterize(chainer.Function):
                                 alpha_out = alpha_map[map_index_out];
                             }
                             if (${return_rgb}) {
-                                rgb_in = &rgb_map[map_index_in * 3];
-                                rgb_out = &rgb_map[map_index_out * 3];
+                                rgb_in = (float*)&rgb_map[map_index_in * 3];
+                                rgb_out = (float*)&rgb_map[map_index_out * 3];
                             }
 
                             /* out */
@@ -621,12 +620,12 @@ class Rasterize(chainer.Function):
                                     map_index_from = bn * is * is + d0 * is + d1_from;
                                 }
                                 if (${return_alpha}) {
-                                    alpha_map_p = &alpha_map[map_index_from];
-                                    grad_alpha_map_p = &grad_alpha_map[map_index_from];
+                                    alpha_map_p = (float*)&alpha_map[map_index_from];
+                                    grad_alpha_map_p = (float*)&grad_alpha_map[map_index_from];
                                 }
                                 if (${return_rgb}) {
-                                    rgb_map_p = &rgb_map[map_index_from * 3];
-                                    grad_rgb_map_p = &grad_rgb_map[map_index_from * 3];
+                                    rgb_map_p = (float*)&rgb_map[map_index_from * 3];
+                                    grad_rgb_map_p = (float*)&grad_rgb_map[map_index_from * 3];
                                 }
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
                                     float diff_grad = 0;
@@ -685,14 +684,14 @@ class Rasterize(chainer.Function):
                                 } else {
                                     map_index_from = bn * is * is + d0 * is + d1_from;
                                 }
-                                face_index_map_p = &face_index_map[map_index_from] - map_offset;
+                                face_index_map_p = (int*)&face_index_map[map_index_from] - map_offset;
                                 if (${return_alpha}) {
-                                    alpha_map_p = &alpha_map[map_index_from] - map_offset;
-                                    grad_alpha_map_p = &grad_alpha_map[map_index_from] - map_offset;
+                                    alpha_map_p = (float*)&alpha_map[map_index_from] - map_offset;
+                                    grad_alpha_map_p = (float*)&grad_alpha_map[map_index_from] - map_offset;
                                 }
                                 if (${return_rgb}) {
-                                    rgb_map_p = &rgb_map[map_index_from * 3] - 3 * map_offset;
-                                    grad_rgb_map_p = &grad_rgb_map[map_index_from * 3] - 3 * map_offset;
+                                    rgb_map_p = (float*)&rgb_map[map_index_from * 3] - 3 * map_offset;
+                                    grad_rgb_map_p = (float*)&grad_rgb_map[map_index_from * 3] - 3 * map_offset;
                                 }
 
                                 for (int d1 = d1_from; d1 <= d1_to; d1++) {
@@ -770,14 +769,14 @@ class Rasterize(chainer.Function):
                     int ts = ${texture_size};
                     int bn = i / (is * is);    // batch number [0 -> bs]
 
-                    float* grad_texture = &grad_textures[(bn * nf + face_index) * ts * ts * ts * 3];
-                    float* sampling_weight_map_p = &sampling_weight_map[i * 8];
-                    int* sampling_index_map_p = &sampling_index_map[i * 8];
+                    float* grad_texture = (float*)&grad_textures[(bn * nf + face_index) * ts * ts * ts * 3];
+                    float* sampling_weight_map_p = (float*)&sampling_weight_map[i * 8];
+                    int* sampling_index_map_p = (int*)&sampling_index_map[i * 8];
                     for (int pn = 0; pn < 8; pn++) {
                         float w = *sampling_weight_map_p++;
                         int isc = *sampling_index_map_p++;
-                        float* grad_texture_p = &grad_texture[isc * 3];
-                        float* grad_rgb_map_p = &grad_rgb_map[i * 3];
+                        float* grad_texture_p = (float*)&grad_texture[isc * 3];
+                        float* grad_rgb_map_p = (float*)&grad_rgb_map[i * 3];
                         for (int k = 0; k < 3; k++) atomicAdd(grad_texture_p++, w * *grad_rgb_map_p++);
                     }
                 }
@@ -813,13 +812,13 @@ class Rasterize(chainer.Function):
                     const int nf = ${num_faces};
                     const int is = ${image_size};
                     const int bn = i / (is * is);
-                    const float* face = &faces[(bn * nf + fn) * 9];
+                    const float* face = (float*)&faces[(bn * nf + fn) * 9];
                     const float depth = depth_map[i];
                     const float depth2 = depth * depth;
-                    const float* face_inv = &face_inv_map[i * 9];
-                    const float* weight = &weight_map[i * 3];
+                    const float* face_inv = (float*)&face_inv_map[i * 9];
+                    const float* weight = (float*)&weight_map[i * 3];
                     const float grad_depth = grad_depth_map[i];
-                    float* grad_face = &grad_faces[(bn * nf + fn) * 9];
+                    float* grad_face = (float*)&grad_faces[(bn * nf + fn) * 9];
 
                     /* derivative wrt z */
                     for (int k = 0; k < 3; k++) {
