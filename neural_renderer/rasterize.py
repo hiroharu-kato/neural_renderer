@@ -386,7 +386,7 @@ class Rasterize(chainer.Function):
                     const int bn = i / (${image_size} * ${image_size});
                     const int nf = ${num_faces};
                     const int ts = ${texture_size};
-                    const float* face = (float*)&faces[face_index * 9];
+                    const float* face = (float*)&faces[(bn * nf + face_index) * 9];
                     const float* texture = (float*)&textures[(bn * nf + face_index) * ts * ts * ts * 3];
                     float* pixel = (float*)&rgb_map[i * 3];
                     const float* weight = (float*)&weight_map[i * 3];
